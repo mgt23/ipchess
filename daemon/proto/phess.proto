@@ -1,0 +1,4 @@
+syntax = "proto3";
+package phess;
+
+option go_package = "gen/phessproto";
