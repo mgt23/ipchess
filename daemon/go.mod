@@ -1,4 +1,4 @@
-module phessdaemon
+module ipchess
 
 go 1.16
 

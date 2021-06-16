@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.25.0
 // 	protoc        v3.14.0
-// source: proto/phess.proto
+// source: proto/ipchess.proto
 
-package phessproto
+package ipchessproto
 
 import (
 	proto "github.com/golang/protobuf/proto"
@@ -24,17 +24,17 @@ const (
 // of the legacy proto package is being used.
 const _ = proto.ProtoPackageIsVersion4
 
-var File_proto_phess_proto protoreflect.FileDescriptor
+var File_proto_ipchess_proto protoreflect.FileDescriptor
 
-var file_proto_phess_proto_rawDesc = []byte{
-	0x0a, 0x11, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x70, 0x68, 0x65, 0x73, 0x73, 0x2e, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x12, 0x05, 0x70, 0x68, 0x65, 0x73, 0x73, 0x42, 0x10, 0x5a, 0x0e, 0x67, 0x65,
-	0x6e, 0x2f, 0x70, 0x68, 0x65, 0x73, 0x73, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x33,
+var file_proto_ipchess_proto_rawDesc = []byte{
+	0x0a, 0x13, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x69, 0x70, 0x63, 0x68, 0x65, 0x73, 0x73, 0x2e,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x07, 0x69, 0x70, 0x63, 0x68, 0x65, 0x73, 0x73, 0x42, 0x12,
+	0x5a, 0x10, 0x67, 0x65, 0x6e, 0x2f, 0x69, 0x70, 0x63, 0x68, 0x65, 0x73, 0x73, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
-var file_proto_phess_proto_goTypes = []interface{}{}
-var file_proto_phess_proto_depIdxs = []int32{
+var file_proto_ipchess_proto_goTypes = []interface{}{}
+var file_proto_ipchess_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -42,26 +42,26 @@ var file_proto_phess_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_proto_phess_proto_init() }
-func file_proto_phess_proto_init() {
-	if File_proto_phess_proto != nil {
+func init() { file_proto_ipchess_proto_init() }
+func file_proto_ipchess_proto_init() {
+	if File_proto_ipchess_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_proto_phess_proto_rawDesc,
+			RawDescriptor: file_proto_ipchess_proto_rawDesc,
 			NumEnums:      0,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_proto_phess_proto_goTypes,
-		DependencyIndexes: file_proto_phess_proto_depIdxs,
+		GoTypes:           file_proto_ipchess_proto_goTypes,
+		DependencyIndexes: file_proto_ipchess_proto_depIdxs,
 	}.Build()
-	File_proto_phess_proto = out.File
-	file_proto_phess_proto_rawDesc = nil
-	file_proto_phess_proto_goTypes = nil
-	file_proto_phess_proto_depIdxs = nil
+	File_proto_ipchess_proto = out.File
+	file_proto_ipchess_proto_rawDesc = nil
+	file_proto_ipchess_proto_goTypes = nil
+	file_proto_ipchess_proto_depIdxs = nil
 }

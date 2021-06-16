@@ -26,7 +26,7 @@ func WithLogger(logger *zap.Logger) HostOption {
 	}
 }
 
-// Host is responsible for handling the Phess protocol steps with peers.
+// Host is responsible for handling the protocol steps with peers.
 type Host struct {
 	mailbox chan interface{}
 	done    chan struct{}
@@ -63,7 +63,7 @@ func (h *Host) Close() {
 	<-h.done
 }
 
-// Start signals the host to start the Phess protocol network processes.
+// Start signals the host to start the protocol network processes.
 func (h *Host) Start(ctx context.Context) error {
 	msg := &hostStart{
 		Ctx: ctx,
@@ -127,7 +127,7 @@ func (h *Host) start(ctx context.Context) error {
 	}
 
 	h.p2pHost = p2pHost
-	h.p2pHost.SetStreamHandler(phessProtocolID, h.handleStream)
+	h.p2pHost.SetStreamHandler(ipchessProtocolID, h.handleStream)
 
 	kadDHT, err := dht.New(ctx, h.p2pHost, dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...))
 	if err != nil {

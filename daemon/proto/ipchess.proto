@@ -1,0 +1,4 @@
+syntax = "proto3";
+package ipchess;
+
+option go_package = "gen/ipchessproto";

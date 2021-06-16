@@ -5,7 +5,7 @@ import (
 	"github.com/multiformats/go-multihash"
 )
 
-const phessProtocolID = "phess/0.1.0"
+const ipchessProtocolID = "ipchess/0.1.0"
 
 var cidPrefix = cid.Prefix{
 	Version:  1,
