@@ -5,17 +5,16 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-kad-dht"
-	kbucket "github.com/libp2p/go-libp2p-kbucket"
 	"go.uber.org/zap"
 )
 
 var (
-	alreadyProvidingError = errors.New("host is already providing a match")
+	alreadyInMatchError = errors.New("host is already in a match")
 )
 
 type HostOption func(*Host)
@@ -63,6 +62,11 @@ func (h *Host) Close() {
 	<-h.done
 }
 
+// ID returns the host's peer ID.
+func (h *Host) ID() peer.ID {
+	return h.p2pHost.ID()
+}
+
 // Start signals the host to start the protocol network processes.
 func (h *Host) Start(ctx context.Context) error {
 	msg := &hostStart{
@@ -74,21 +78,16 @@ func (h *Host) Start(ctx context.Context) error {
 	return <-msg.Err
 }
 
-// ProvideMatch signals the host to start providing a new match. After the first peer looking for the provided match CID
-// will be accepted.
-func (h *Host) ProvideMatch(ctx context.Context) error {
-	msg := &hostProvideMatch{
-		Ctx: ctx,
-		Err: make(chan error),
+// ChallengePeer signals the host to look for the match with the given CID.
+func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
+	msg := &hostChallengePeer{
+		Ctx:    ctx,
+		Err:    make(chan error),
+		PeerID: peerID,
 	}
 	h.mailbox <- msg
 
 	return <-msg.Err
-}
-
-// JoinMatch signals the host to look for the match with the given CID.
-func (h *Host) JoinMatch(ctx context.Context, matchCID cid.Cid) error {
-	return nil
 }
 
 func (h *Host) background() {
@@ -105,8 +104,8 @@ func (h *Host) background() {
 			msg.Err <- h.start(msg.Ctx)
 			close(msg.Err)
 
-		case *hostProvideMatch:
-			msg.Err <- h.provideMatch(msg.Ctx)
+		case *hostChallengePeer:
+			msg.Err <- h.challengePeer(msg.Ctx, msg.PeerID)
 			close(msg.Err)
 
 		default:
@@ -129,7 +128,11 @@ func (h *Host) start(ctx context.Context) error {
 	h.p2pHost = p2pHost
 	h.p2pHost.SetStreamHandler(ipchessProtocolID, h.handleStream)
 
-	kadDHT, err := dht.New(ctx, h.p2pHost, dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...))
+	kadDHT, err := dht.New(
+		ctx,
+		h.p2pHost,
+		dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...),
+	)
 	if err != nil {
 		return err
 	}
@@ -144,33 +147,29 @@ func (h *Host) start(ctx context.Context) error {
 	return nil
 }
 
-func (h *Host) provideMatch(ctx context.Context) error {
+func (h *Host) challengePeer(ctx context.Context, peerID peer.ID) error {
 	if h.currentMatch != nil {
-		return alreadyProvidingError
+		return alreadyInMatchError
 	}
 
-	h.currentMatch = newMatch(h.p2pHost.ID())
-	matchCID := h.currentMatch.CID
-
 	go func() {
-	loop:
 		for {
-			h.logger.Debug("providing match", zap.String("CID", matchCID.String()))
+			if h.hasDHTPeers() {
+				peerAddrInfo, err := h.kadDHT.FindPeer(ctx, peerID)
+				if err != nil {
+					h.logger.Error("failed finding peer", zap.Error(err))
+				} else {
+					h.logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
 
-			provideCtx, cancelProvideCtx := context.WithTimeout(ctx, time.Second)
-			err := h.kadDHT.Provide(provideCtx, matchCID, true)
-			cancelProvideCtx()
-			if err == kbucket.ErrLookupFailure {
-				// We have no peers yet. Ignore the error to prevent flooding the logs.
-				<-time.After(5 * time.Second)
-			} else if err != nil {
-				h.logger.Error("failed providing match", zap.Error(err))
+					s, _ := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
+					s.Close()
+				}
 			}
 
 			select {
 			case <-ctx.Done():
-				break loop
-			default:
+				return
+			case <-time.After(time.Second):
 			}
 		}
 	}()
@@ -179,6 +178,19 @@ func (h *Host) provideMatch(ctx context.Context) error {
 }
 
 func (h *Host) handleStream(stream network.Stream) {
+	h.logger.Debug("new peer stream", zap.String("peerID", stream.Conn().RemotePeer().Pretty()))
+	stream.Close()
+}
+
+func (h *Host) hasDHTPeers() bool {
+	for _, conn := range h.p2pHost.Network().Conns() {
+		s, _ := h.p2pHost.Peerstore().FirstSupportedProtocol(conn.RemotePeer(), string(dht.ProtocolDHT))
+		if s != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 type hostStart struct {
@@ -186,7 +198,9 @@ type hostStart struct {
 	Err chan error
 }
 
-type hostProvideMatch struct {
+type hostChallengePeer struct {
 	Ctx context.Context
 	Err chan error
+
+	PeerID peer.ID
 }

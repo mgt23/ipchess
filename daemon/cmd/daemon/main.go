@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/libp2p/go-libp2p-core/peer"
 	"go.uber.org/zap"
 )
 
@@ -31,9 +32,20 @@ func main() {
 		panic(err)
 	}
 	defer h.Close()
+	logger.Info("started node", zap.String("ID", h.ID().Pretty()))
 
-	if err := h.ProvideMatch(ctx); err != nil {
-		panic(err)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "challenge":
+			peerID, err := peer.Decode(os.Args[2])
+			if err != nil {
+				panic(err)
+			}
+
+			if err := h.ChallengePeer(ctx, peerID); err != nil {
+				panic(err)
+			}
+		}
 	}
 
 	<-ctx.Done()
