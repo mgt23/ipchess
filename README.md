@@ -6,4 +6,6 @@ IPChess is a trustless Peer-to-Peer Chess game implemented on top of the [IPFS](
 
 # License
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License].
+
+[MIT License]: https://github.com/FelipeRosa/ipchess/blob/main/LICENSE
