@@ -111,13 +111,13 @@ func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
 		if h.hasDHTPeers() {
 			peerAddrInfo, err := h.kadDHT.FindPeer(ctx, peerID)
 			if err != nil {
-				h.logger.Error("failed finding peer", zap.Error(err))
-			} else {
-				h.logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
-
-				s, _ := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
-				s.Close()
+				return err
 			}
+
+			h.logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
+
+			s, _ := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
+			s.Close()
 		}
 
 		select {
