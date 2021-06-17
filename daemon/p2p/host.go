@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -26,10 +27,10 @@ func WithLogger(logger *zap.Logger) HostOption {
 }
 
 // Host is responsible for handling the protocol steps with peers.
+//
+// thread-safe.
 type Host struct {
-	mailbox chan interface{}
-	done    chan struct{}
-	started bool
+	stateLock sync.RWMutex
 
 	p2pHost host.Host
 	kadDHT  *dht.IpfsDHT
@@ -42,24 +43,25 @@ type Host struct {
 // NewHost creates a new host which can be started later.
 func NewHost(options ...HostOption) *Host {
 	h := &Host{
-		mailbox: make(chan interface{}),
-		done:    make(chan struct{}),
-		logger:  zap.NewNop(),
+		logger: zap.NewNop(),
 	}
 
 	for _, option := range options {
 		option(h)
 	}
 
-	go h.background()
-
 	return h
 }
 
 // Close stops the host's networking processes and background loop.
 func (h *Host) Close() {
-	close(h.mailbox)
-	<-h.done
+	if h.p2pHost != nil {
+		h.p2pHost.Close()
+	}
+
+	if h.kadDHT != nil {
+		h.kadDHT.Close()
+	}
 }
 
 // ID returns the host's peer ID.
@@ -69,57 +71,9 @@ func (h *Host) ID() peer.ID {
 
 // Start signals the host to start the protocol network processes.
 func (h *Host) Start(ctx context.Context) error {
-	msg := &hostStart{
-		Ctx: ctx,
-		Err: make(chan error),
-	}
-	h.mailbox <- msg
+	h.stateLock.Lock()
+	defer h.stateLock.Unlock()
 
-	return <-msg.Err
-}
-
-// ChallengePeer signals the host to look for the match with the given CID.
-func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
-	msg := &hostChallengePeer{
-		Ctx:    ctx,
-		Err:    make(chan error),
-		PeerID: peerID,
-	}
-	h.mailbox <- msg
-
-	return <-msg.Err
-}
-
-func (h *Host) background() {
-	defer close(h.done)
-
-	for {
-		msg, ok := <-h.mailbox
-		if !ok {
-			break
-		}
-
-		switch msg := msg.(type) {
-		case *hostStart:
-			msg.Err <- h.start(msg.Ctx)
-			close(msg.Err)
-
-		case *hostChallengePeer:
-			msg.Err <- h.challengePeer(msg.Ctx, msg.PeerID)
-			close(msg.Err)
-
-		default:
-			panic("invalid message type for Host")
-		}
-	}
-
-	if h.started {
-		h.kadDHT.Close()
-		h.p2pHost.Close()
-	}
-}
-
-func (h *Host) start(ctx context.Context) error {
 	p2pHost, err := libp2p.New(ctx)
 	if err != nil {
 		return err
@@ -142,39 +96,36 @@ func (h *Host) start(ctx context.Context) error {
 	}
 
 	h.kadDHT = kadDHT
-
-	h.started = true
 	return nil
 }
 
-func (h *Host) challengePeer(ctx context.Context, peerID peer.ID) error {
+// ChallengePeer challenges a peer to a match.
+func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
+	h.stateLock.RLock()
+	defer h.stateLock.RUnlock()
 	if h.currentMatch != nil {
 		return alreadyInMatchError
 	}
 
-	go func() {
-		for {
-			if h.hasDHTPeers() {
-				peerAddrInfo, err := h.kadDHT.FindPeer(ctx, peerID)
-				if err != nil {
-					h.logger.Error("failed finding peer", zap.Error(err))
-				} else {
-					h.logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
+	for {
+		if h.hasDHTPeers() {
+			peerAddrInfo, err := h.kadDHT.FindPeer(ctx, peerID)
+			if err != nil {
+				h.logger.Error("failed finding peer", zap.Error(err))
+			} else {
+				h.logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
 
-					s, _ := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
-					s.Close()
-				}
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
+				s, _ := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
+				s.Close()
 			}
 		}
-	}()
 
-	return nil
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 func (h *Host) handleStream(stream network.Stream) {
@@ -191,16 +142,4 @@ func (h *Host) hasDHTPeers() bool {
 	}
 
 	return false
-}
-
-type hostStart struct {
-	Ctx context.Context
-	Err chan error
-}
-
-type hostChallengePeer struct {
-	Ctx context.Context
-	Err chan error
-
-	PeerID peer.ID
 }
