@@ -5,6 +5,7 @@ import (
 	"ipchess/p2p"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	"go.uber.org/zap"
@@ -19,7 +20,7 @@ func main() {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	go func() {
-		sigChan := make(chan os.Signal)
+		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt)
 		<-sigChan
 		signal.Reset(os.Interrupt)
@@ -33,6 +34,11 @@ func main() {
 	}
 	defer h.Close()
 	logger.Info("started node", zap.String("ID", h.ID().Pretty()))
+
+	for !h.Connected() {
+		<-time.After(10 * time.Millisecond)
+	}
+	logger.Info("node online")
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {

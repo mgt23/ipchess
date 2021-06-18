@@ -1,21 +1,10 @@
 package p2p
 
-import (
-	"github.com/google/uuid"
-	"github.com/ipfs/go-cid"
-)
+import "github.com/libp2p/go-libp2p-core/peer"
 
+// Match holds data about a InterPlanetary Chess match.
 type Match struct {
-	CID cid.Cid
-	ID  uuid.UUID
-}
-
-func newMatch() *Match {
-	matchID := uuid.New()
-	matchCID, _ := cidPrefix.Sum(matchID[:])
-
-	return &Match{
-		CID: matchCID,
-		ID:  matchID,
-	}
+	ID    [32]byte
+	White peer.ID
+	Black peer.ID
 }

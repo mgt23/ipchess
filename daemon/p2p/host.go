@@ -10,12 +10,12 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-kad-dht"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"go.uber.org/zap"
 )
 
 var (
-	alreadyInMatchError = errors.New("host is already in a match")
+	errAlreadyInMatch = errors.New("host is already in a match")
 )
 
 type HostOption func(*Host)
@@ -99,25 +99,57 @@ func (h *Host) Start(ctx context.Context) error {
 	return nil
 }
 
+// Connected returns true if the host is connected to at least 1 peer that supports the DHT protocol.
+func (h *Host) Connected() bool {
+	for _, conn := range h.p2pHost.Network().Conns() {
+		s, _ := h.p2pHost.Peerstore().FirstSupportedProtocol(conn.RemotePeer(), string(dht.ProtocolDHT))
+		if s != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ChallengePeer challenges a peer to a match.
 func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
 	h.stateLock.RLock()
 	defer h.stateLock.RUnlock()
 	if h.currentMatch != nil {
-		return alreadyInMatchError
+		return errAlreadyInMatch
 	}
 
 	for {
-		if h.hasDHTPeers() {
+		if h.Connected() {
+			logger := h.logger.With(zap.String("peerID", peerID.Pretty()))
+			logger.Debug("looking for peer")
 			peerAddrInfo, err := h.kadDHT.FindPeer(ctx, peerID)
 			if err != nil {
 				return err
 			}
 
-			h.logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
+			logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
 
-			s, _ := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
-			s.Close()
+			stream, err := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
+			if err != nil {
+				return err
+			}
+
+			err = func() error {
+				defer stream.Close()
+
+				c := newChallenge(logger)
+				match, err := c.Initiate(ctx, stream)
+				if err != nil {
+					return err
+				}
+				logger.Debug("challenge accepted", zap.Any("match", match))
+
+				return nil
+			}()
+			if err != nil {
+				return err
+			}
 		}
 
 		select {
@@ -129,17 +161,15 @@ func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
 }
 
 func (h *Host) handleStream(stream network.Stream) {
-	h.logger.Debug("new peer stream", zap.String("peerID", stream.Conn().RemotePeer().Pretty()))
-	stream.Close()
-}
+	defer stream.Close()
 
-func (h *Host) hasDHTPeers() bool {
-	for _, conn := range h.p2pHost.Network().Conns() {
-		s, _ := h.p2pHost.Peerstore().FirstSupportedProtocol(conn.RemotePeer(), string(dht.ProtocolDHT))
-		if s != "" {
-			return true
-		}
+	logger := h.logger.With(zap.String("peerID", stream.Conn().RemotePeer().Pretty()))
+	logger.Debug("new peer stream")
+
+	c := newChallenge(logger)
+	match, err := c.Handle(context.Background(), stream)
+	if err != nil {
+		logger.Error("failed handling peer challenge", zap.Error(err))
 	}
-
-	return false
+	logger.Debug("challenge accepted", zap.Any("match", match))
 }

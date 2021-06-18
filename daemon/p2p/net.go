@@ -5,14 +5,14 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/libp2p/go-libp2p-core/network"
+	"google.golang.org/protobuf/proto"
 )
 
 const maxMessageLength = 1024
 
 var (
-	maxMessageLengthExceededError = errors.New("max message length exceeded")
+	errMaxMessageLengthExceeded = errors.New("max message length exceeded")
 )
 
 // sendMessage tries to send a length-prefixed protobuf encoded message.
@@ -24,7 +24,7 @@ func sendMessage(ctx context.Context, stream network.Stream, message proto.Messa
 
 	msgLength := uint16(len(msgBytes))
 	if msgLength > maxMessageLength {
-		return maxMessageLengthExceededError
+		return errMaxMessageLengthExceeded
 	}
 
 	ctxDeadline, _ := ctx.Deadline()
@@ -55,7 +55,7 @@ func receiveMessage(ctx context.Context, stream network.Stream, message proto.Me
 	}
 
 	if msgLength > maxMessageLength {
-		return maxMessageLengthExceededError
+		return errMaxMessageLengthExceeded
 	}
 
 	msgBytes := make([]byte, msgLength)

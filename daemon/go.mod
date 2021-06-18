@@ -9,8 +9,6 @@ require (
 	github.com/libp2p/go-libp2p v0.14.2
 	github.com/libp2p/go-libp2p-core v0.8.5
 	github.com/libp2p/go-libp2p-kad-dht v0.12.1
-	github.com/libp2p/go-libp2p-kbucket v0.4.7
-	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/multiformats/go-multihash v0.0.15
 	go.uber.org/zap v1.16.0
 	google.golang.org/protobuf v1.25.0
