@@ -12,22 +12,22 @@ import (
 	"go.uber.org/zap"
 )
 
-// ChallengeRejectedError indicates that a challenge was not accepted by us or the peer for some reason.
-type ChallengeRejectedError struct {
-	Reason ChallengeRejectedReason
+// ChallengeDeclinedError indicates that a challenge was not accepted by us or the peer for some reason.
+type ChallengeDeclinedError struct {
+	Reason ChallengeDeclinedReason
 }
 
-func (err *ChallengeRejectedError) Error() string {
-	return fmt.Sprintf("match rejected: %s", err.Reason)
+func (err *ChallengeDeclinedError) Error() string {
+	return fmt.Sprintf("match challenged declined: %s", err.Reason)
 }
 
-// ChallengeRejectedReason enumerates the possible challenge rejection reasons.
-type ChallengeRejectedReason string
+// ChallengeDeclinedReason enumerates the possible challenge declination reasons.
+type ChallengeDeclinedReason string
 
 var (
-	PeerReject               ChallengeRejectedReason = "peer did not accept the challenge"
-	InvalidRandomBytesLength ChallengeRejectedReason = "received more than one random byte from peer"
-	CommitmentMismatch       ChallengeRejectedReason = "peer preimage does not match commitment"
+	DeclinedByPeer           ChallengeDeclinedReason = "peer declined the challenge"
+	InvalidRandomBytesLength ChallengeDeclinedReason = "received more than one random byte from peer"
+	CommitmentMismatch       ChallengeDeclinedReason = "peer preimage does not match commitment"
 )
 
 // challenge initiates or handles match requests to and from peers.
@@ -70,9 +70,9 @@ func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match
 	}
 
 	if len(challengeRes.PieceColorNegotiationRandomBytes) == 0 {
-		return nil, &ChallengeRejectedError{Reason: PeerReject}
+		return nil, &ChallengeDeclinedError{Reason: DeclinedByPeer}
 	} else if len(challengeRes.PieceColorNegotiationRandomBytes) != 32 {
-		return nil, &ChallengeRejectedError{Reason: InvalidRandomBytesLength}
+		return nil, &ChallengeDeclinedError{Reason: InvalidRandomBytesLength}
 	}
 
 	c.logger.Debug("sending challenge piece color negotiation commitment preimage")
@@ -135,7 +135,7 @@ func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*MatchIn
 	}
 
 	if !bytes.Equal(preimgHash, challengeReq.PieceColorNegotiationCommitment) {
-		return nil, &ChallengeRejectedError{Reason: CommitmentMismatch}
+		return nil, &ChallengeDeclinedError{Reason: CommitmentMismatch}
 	}
 
 	m := &MatchInfo{}
