@@ -48,10 +48,33 @@ func main() {
 				panic(err)
 			}
 
-			if err := h.ChallengePeer(ctx, peerID); err != nil {
+			match, err := h.ChallengePeer(ctx, peerID)
+			if err != nil {
 				panic(err)
 			}
+
+			move, err := match.ReceiveMove(ctx)
+			if err != nil {
+				panic(err)
+			}
+			logger.Debug("received move", zap.Any("move", move))
 		}
+	} else {
+		match, err := h.Accept(ctx)
+		if err != nil {
+			panic(err)
+		}
+
+		move := p2p.Move{
+			FromRow: 1,
+			FromCol: 2,
+			ToRow:   3,
+			ToCol:   4,
+		}
+		if err := match.SendMove(context.Background(), move); err != nil {
+			logger.Error("failed sending move", zap.Error(err))
+		}
+		logger.Debug("sent move", zap.Any("move", move))
 	}
 
 	<-ctx.Done()

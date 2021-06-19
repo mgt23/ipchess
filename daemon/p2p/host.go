@@ -2,7 +2,7 @@ package p2p
 
 import (
 	"context"
-	"errors"
+	"encoding/hex"
 	"sync"
 	"time"
 
@@ -12,10 +12,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"go.uber.org/zap"
-)
-
-var (
-	errAlreadyInMatch = errors.New("host is already in a match")
 )
 
 type HostOption func(*Host)
@@ -35,7 +31,7 @@ type Host struct {
 	p2pHost host.Host
 	kadDHT  *dht.IpfsDHT
 
-	currentMatch *Match
+	acceptChan chan *acceptInfo
 
 	logger *zap.Logger
 }
@@ -43,7 +39,8 @@ type Host struct {
 // NewHost creates a new host which can be started later.
 func NewHost(options ...HostOption) *Host {
 	h := &Host{
-		logger: zap.NewNop(),
+		logger:     zap.NewNop(),
+		acceptChan: make(chan *acceptInfo),
 	}
 
 	for _, option := range options {
@@ -104,72 +101,100 @@ func (h *Host) Connected() bool {
 	for _, conn := range h.p2pHost.Network().Conns() {
 		s, _ := h.p2pHost.Peerstore().FirstSupportedProtocol(conn.RemotePeer(), string(dht.ProtocolDHT))
 		if s != "" {
-			return true
+			return h.kadDHT.RoutingTable().Size() > 0
 		}
 	}
 
 	return false
 }
 
-// ChallengePeer challenges a peer to a match.
-func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) error {
-	h.stateLock.RLock()
-	defer h.stateLock.RUnlock()
-	if h.currentMatch != nil {
-		return errAlreadyInMatch
+// Accept blocks until a challenge is accepted.
+// The host will decline incoming challenges that arrive while we are not accepting.
+func (h *Host) Accept(ctx context.Context) (*Match, error) {
+	ai := &acceptInfo{
+		Ctx:   ctx,
+		Match: make(chan *Match),
+		Err:   make(chan error),
 	}
+	h.acceptChan <- ai
 
+	select {
+	case match := <-ai.Match:
+		return match, nil
+	case err := <-ai.Err:
+		return nil, err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// ChallengePeer challenges a peer to a match.
+func (h *Host) ChallengePeer(ctx context.Context, peerID peer.ID) (*Match, error) {
 	for {
 		if h.Connected() {
 			logger := h.logger.With(zap.String("peerID", peerID.Pretty()))
 			logger.Debug("looking for peer")
 			peerAddrInfo, err := h.kadDHT.FindPeer(ctx, peerID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			logger.Debug("peer found", zap.String("addrInfo", peerAddrInfo.String()))
 
 			stream, err := h.p2pHost.NewStream(ctx, peerAddrInfo.ID, ipchessProtocolID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
-			err = func() error {
-				defer stream.Close()
-
-				c := newChallenge(logger)
-				match, err := c.Initiate(ctx, stream)
-				if err != nil {
-					return err
-				}
-				logger.Debug("challenge accepted", zap.Any("match", match))
-
-				return nil
-			}()
+			c := newChallenge(logger)
+			matchInfo, err := c.Initiate(ctx, stream)
 			if err != nil {
-				return err
+				return nil, err
 			}
+			logger.Debug("challenge accepted", zap.Any("matchInfo", matchInfo))
+
+			logger = logger.With(zap.String("matchID", hex.EncodeToString(matchInfo.ID[:])))
+			return newMatch(logger, stream, *matchInfo), nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil
+			return nil, ctx.Err()
 		case <-time.After(time.Second):
 		}
 	}
 }
 
 func (h *Host) handleStream(stream network.Stream) {
-	defer stream.Close()
+	select {
+	case ai := <-h.acceptChan:
+		defer func() {
+			close(ai.Match)
+			close(ai.Err)
+		}()
 
-	logger := h.logger.With(zap.String("peerID", stream.Conn().RemotePeer().Pretty()))
-	logger.Debug("new peer stream")
+		logger := h.logger.With(zap.String("peerID", stream.Conn().RemotePeer().Pretty()))
+		logger.Debug("new peer stream")
 
-	c := newChallenge(logger)
-	match, err := c.Handle(context.Background(), stream)
-	if err != nil {
-		logger.Error("failed handling peer challenge", zap.Error(err))
+		c := newChallenge(logger)
+		matchInfo, err := c.Handle(ai.Ctx, stream)
+		if err != nil {
+			ai.Err <- err
+			return
+		}
+		logger.Debug("challenge accepted", zap.Any("matchInfo", matchInfo))
+
+		logger = logger.With(zap.String("matchID", hex.EncodeToString(matchInfo.ID[:])))
+		ai.Match <- newMatch(logger, stream, *matchInfo)
+	default:
+		// close the stream since we are not accepting challenges
+		stream.Close()
 	}
-	logger.Debug("challenge accepted", zap.Any("match", match))
+}
+
+// acceptInfo holds data for accepting challenges asynchronously.
+type acceptInfo struct {
+	Ctx   context.Context
+	Match chan *Match
+	Err   chan error
 }

@@ -42,7 +42,7 @@ func newChallenge(logger *zap.Logger) *challenge {
 }
 
 // Initiate challenges a peer to a match.
-func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match, error) {
+func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
 	c.logger.Debug("generating piece color negotiation random bytes")
 	rb := make([]byte, 32)
 	if _, err := rand.Read(rb); err != nil {
@@ -83,7 +83,7 @@ func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match
 		return nil, err
 	}
 
-	m := &Match{}
+	m := &MatchInfo{}
 
 	for i := 0; i < 32; i++ {
 		m.ID[i] = rb[i] ^ challengeRes.PieceColorNegotiationRandomBytes[i]
@@ -101,7 +101,7 @@ func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match
 }
 
 // Handle handles an incoming match challenge from a peer.
-func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*Match, error) {
+func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
 	c.logger.Debug("waiting challenge request")
 	var challengeReq ipchessproto.ChallengeRequest
 	if err := receiveMessage(ctx, stream, &challengeReq); err != nil {
@@ -138,7 +138,7 @@ func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*Match, 
 		return nil, &ChallengeRejectedError{Reason: CommitmentMismatch}
 	}
 
-	m := &Match{}
+	m := &MatchInfo{}
 
 	for i := 0; i < 32; i++ {
 		m.ID[i] = rb[i] ^ pcnPreimg.Preimage[i]

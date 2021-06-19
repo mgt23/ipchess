@@ -3,14 +3,23 @@ package ipchess;
 
 option go_package = "gen/ipchessproto";
 
+message Move {
+  bytes match_id = 1;
+  bytes white = 2;
+  bytes black = 3;
+  uint32 enc = 4;
+  uint32 seq = 5;
+  bytes signature = 6;
+}
+
 message ChallengeRequest {
-    bytes pieceColorNegotiationCommitment = 1;
+  bytes piece_color_negotiation_commitment = 1;
 }
 
 message ChallengeResponse {
-    bytes pieceColorNegotiationRandomBytes = 1;
+  bytes piece_color_negotiation_random_bytes = 1;
 }
 
 message PieceColorNegotiationPreimage {
-    bytes preimage = 1;
+  bytes preimage = 1;
 }
