@@ -1,0 +1,4 @@
+/node_modules
+/build-main
+/build-renderer
+/.parcel-cache
