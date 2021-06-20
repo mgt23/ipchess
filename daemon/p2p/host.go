@@ -40,7 +40,7 @@ type Host struct {
 func NewHost(options ...HostOption) *Host {
 	h := &Host{
 		logger:     zap.NewNop(),
-		acceptChan: make(chan *acceptInfo),
+		acceptChan: make(chan *acceptInfo, 1), // at most 1 Accept concurrent call
 	}
 
 	for _, option := range options {

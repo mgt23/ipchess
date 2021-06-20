@@ -61,20 +61,23 @@ func main() {
 		}
 	} else {
 		match, err := h.Accept(ctx)
-		if err != nil {
+		if err == context.Canceled {
+		} else if err != nil {
 			panic(err)
 		}
 
-		move := p2p.Move{
-			FromRow: 1,
-			FromCol: 2,
-			ToRow:   3,
-			ToCol:   4,
+		if match != nil {
+			move := p2p.Move{
+				FromRow: 1,
+				FromCol: 2,
+				ToRow:   3,
+				ToCol:   4,
+			}
+			if err := match.SendMove(context.Background(), move); err != nil {
+				logger.Error("failed sending move", zap.Error(err))
+			}
+			logger.Debug("sent move", zap.Any("move", move))
 		}
-		if err := match.SendMove(context.Background(), move); err != nil {
-			logger.Error("failed sending move", zap.Error(err))
-		}
-		logger.Debug("sent move", zap.Any("move", move))
 	}
 
 	<-ctx.Done()
