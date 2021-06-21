@@ -10,17 +10,37 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // NewDaemonCmd creates a new daemon command.
 func NewDaemonCmd() *cobra.Command {
 	var apiPort uint16
+	var debug bool
 
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Start IPChess daemon process",
 		Run: func(cmd *cobra.Command, args []string) {
-			logger, err := zap.NewDevelopment()
+			loggerCfg := zap.Config{
+				Level:            zap.NewAtomicLevelAt(zapcore.InfoLevel),
+				Encoding:         "console",
+				OutputPaths:      []string{"stdout"},
+				ErrorOutputPaths: []string{"stderr"},
+				EncoderConfig: zapcore.EncoderConfig{
+					LevelKey:    "level",
+					EncodeLevel: zapcore.CapitalColorLevelEncoder,
+					TimeKey:     "ts",
+					EncodeTime:  zapcore.ISO8601TimeEncoder,
+					MessageKey:  "msg",
+				},
+			}
+			if debug {
+				loggerCfg.Development = true
+				loggerCfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+			}
+
+			logger, err := loggerCfg.Build()
 			if err != nil {
 				panic(err)
 			}
@@ -66,6 +86,7 @@ func NewDaemonCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Uint16Var(&apiPort, "api.port", 0, "API port")
+	cmd.Flags().BoolVar(&debug, "debug", false, "Turn on debugging logs")
 	cmd.MarkFlagRequired("api.port")
 
 	return cmd
