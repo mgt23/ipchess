@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"ipchess/gen/ipchessproto"
 
@@ -17,6 +18,10 @@ var (
 )
 
 type MatchID [32]byte
+
+func (mid MatchID) Pretty() string {
+	return hex.EncodeToString(mid[:])
+}
 
 // MatchInfo holds data about a InterPlanetary Chess Match.
 type MatchInfo struct {
@@ -48,6 +53,10 @@ func newMatch(logger *zap.Logger, stream network.Stream, info MatchInfo) *Match 
 		logger: logger,
 		stream: stream,
 	}
+}
+
+func (m *Match) Info() MatchInfo {
+	return m.info
 }
 
 func (m *Match) SendMove(ctx context.Context, move Move) error {
@@ -123,4 +132,8 @@ func (m *Match) ReceiveMove(ctx context.Context) (Move, error) {
 	}
 
 	return dec, nil
+}
+
+func (m *Match) Close() {
+	m.stream.Close()
 }
