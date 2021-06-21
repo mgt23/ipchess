@@ -1,5 +1,8 @@
 .PHONY:
 
+build: .PHONY
+	go build -o ipchess cmd/main.go
+
 lint: .PHONY
 	go vet ./...
 
