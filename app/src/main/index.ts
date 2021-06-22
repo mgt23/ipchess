@@ -1,28 +1,42 @@
-import childProcess from "child_process";
-import { ChildProcessWithoutNullStreams } from "child_process";
-import path from "path";
 import { app, BrowserWindow } from "electron";
+import childProcess, { ChildProcessWithoutNullStreams } from "child_process";
+import getPort from "get-port";
+import log, { LoggingMethod } from "loglevel";
+import path from "path";
 
-let daemonProcess: ChildProcessWithoutNullStreams | null = null;
+const originalFactory = log.methodFactory;
+log.methodFactory = (methodName, logLevel, loggerName): LoggingMethod => {
+    return (message) => {
+        return originalFactory(
+            methodName,
+            logLevel,
+            loggerName
+        )(`${new Date().toISOString()} ${methodName.toUpperCase()} ${message}`);
+    };
+};
+log.setDefaultLevel(log.levels.DEBUG);
+log.setLevel(log.getLevel());
 
-app.whenReady().then(() => {
-    const window = new BrowserWindow({
-        width: 800,
-        height: 600,
+async function main() {
+    await app.whenReady();
+
+    let daemonProcess: ChildProcessWithoutNullStreams | null = null;
+    const daemonApiPort = await getPort({
+        port: 3030,
+        host: "127.0.0.1",
     });
 
+    log.info(`starting daemon process with API at 127.0.0.1:${daemonApiPort}`);
     daemonProcess = childProcess.spawn(
         path.join(app.getAppPath(), "ipchess"),
-        ["daemon", "--api.port", "3030"],
+        ["daemon", "--api.port", daemonApiPort.toString()],
         { detached: false, killSignal: "SIGTERM" }
     );
-    daemonProcess.stdout.on("data", (chunk: Buffer) => {
-        console.log(chunk.toString("utf-8"));
-    });
-    daemonProcess.stderr.on("data", (chunk: Buffer) => {
-        console.log(chunk.toString("utf-8"));
+    daemonProcess.on("spawn", () => {
+        log.info("daemon process started");
     });
     daemonProcess.on("close", () => {
+        log.info("daemon process closed");
         daemonProcess = null;
     });
 
@@ -35,12 +49,19 @@ app.whenReady().then(() => {
         }
     });
 
+    const window = new BrowserWindow({
+        width: 800,
+        height: 600,
+    });
+
     // dev url for parcel
-    window.loadURL("http://localhost:1234");
-});
+    await window.loadURL("http://localhost:1234");
+}
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") {
         app.quit();
     }
 });
+
+main();
