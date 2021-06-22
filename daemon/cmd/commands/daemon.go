@@ -6,6 +6,7 @@ import (
 	"ipchess/p2p"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -49,9 +50,10 @@ func NewDaemonCmd() *cobra.Command {
 
 			go func() {
 				sigChan := make(chan os.Signal, 1)
-				signal.Notify(sigChan, os.Interrupt)
+				signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 				<-sigChan
-				signal.Reset(os.Interrupt)
+				logger.Info("shutting down...")
+				signal.Reset(syscall.SIGINT, syscall.SIGTERM)
 
 				ctxCancel()
 			}()
