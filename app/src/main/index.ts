@@ -1,8 +1,6 @@
 import { app, BrowserWindow } from "electron";
-import childProcess, { ChildProcessWithoutNullStreams } from "child_process";
-import getPort from "get-port";
 import log, { LoggingMethod } from "loglevel";
-import path from "path";
+import { State } from "./state";
 
 const originalFactory = log.methodFactory;
 log.methodFactory = (methodName, logLevel, loggerName): LoggingMethod => {
@@ -17,33 +15,22 @@ log.methodFactory = (methodName, logLevel, loggerName): LoggingMethod => {
 log.setDefaultLevel(log.levels.DEBUG);
 log.setLevel(log.getLevel());
 
+const appState = new State();
+
 async function main() {
     await app.whenReady();
+    appState.start();
 
-    let daemonProcess: ChildProcessWithoutNullStreams | null = null;
-    const daemonApiPort = await getPort({
-        port: 3030,
-        host: "127.0.0.1",
-    });
-
-    log.info(`starting daemon process with API at 127.0.0.1:${daemonApiPort}`);
-    daemonProcess = childProcess.spawn(
-        path.join(app.getAppPath(), "ipchess"),
-        ["daemon", "--api.port", daemonApiPort.toString()],
-        { detached: false, killSignal: "SIGTERM" }
-    );
-    daemonProcess.on("spawn", () => {
-        log.info("daemon process started");
-    });
-    daemonProcess.on("close", () => {
-        log.info("daemon process closed");
-        daemonProcess = null;
-    });
-
+    let quitTryCount = 0;
     app.on("before-quit", (e) => {
-        if (daemonProcess && daemonProcess.pid) {
+        if (quitTryCount >= 200) {
+            appState.terminate();
+            return;
+        }
+
+        if (!appState.isClosed()) {
             e.preventDefault();
-            process.kill(daemonProcess.pid);
+            appState.close();
             // try again after a while
             setTimeout(() => app.quit(), 10);
         }
