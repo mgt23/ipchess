@@ -43,35 +43,35 @@ func newChallenge(logger *zap.Logger) *challenge {
 
 // Initiate challenges a peer to a match.
 func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
-	c.logger.Debug("generating challenge ask random bytes")
+	c.logger.Debug("generating challenge request random bytes")
 	rb := make([]byte, 32)
 	if _, err := rand.Read(rb); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("generating challenge challenge ask commitment")
+	c.logger.Debug("generating challenge challenge request commitment")
 	commitment, err := multihash.Encode(rb, multihash.SHA2_256)
 	if err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("sending challenge ask")
-	challengeAsk := &ipchessproto.ChallengeAsk{
+	c.logger.Debug("sending challenge request")
+	challengeRequest := &ipchessproto.ChallengeRequest{
 		Commitment: commitment,
 	}
-	if err := sendMessage(ctx, stream, challengeAsk); err != nil {
+	if err := sendMessage(ctx, stream, challengeRequest); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("waiting challenge ask response")
-	var challengeAskResponse ipchessproto.ChallengeAskResponse
-	if err := receiveMessage(ctx, stream, &challengeAskResponse); err != nil {
+	c.logger.Debug("waiting challenge request response")
+	var challengeRequestResponse ipchessproto.ChallengeRequestResponse
+	if err := receiveMessage(ctx, stream, &challengeRequestResponse); err != nil {
 		return nil, err
 	}
 
-	if len(challengeAskResponse.RandomBytes) == 0 {
+	if len(challengeRequestResponse.RandomBytes) == 0 {
 		return nil, &ChallengeDeclinedError{Reason: DeclinedByPeer}
-	} else if len(challengeAskResponse.RandomBytes) != 32 {
+	} else if len(challengeRequestResponse.RandomBytes) != 32 {
 		return nil, &ChallengeDeclinedError{Reason: InvalidRandomBytesLength}
 	}
 
@@ -86,7 +86,7 @@ func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match
 	m := &MatchInfo{}
 
 	for i := 0; i < 32; i++ {
-		m.ID[i] = rb[i] ^ challengeAskResponse.RandomBytes[i]
+		m.ID[i] = rb[i] ^ challengeRequestResponse.RandomBytes[i]
 	}
 
 	if (m.ID[0] & 1) == 0 {
@@ -103,22 +103,22 @@ func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match
 // Handle handles an incoming match challenge from a peer.
 func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
 	c.logger.Debug("waiting challenge request")
-	var challengeAsk ipchessproto.ChallengeAsk
-	if err := receiveMessage(ctx, stream, &challengeAsk); err != nil {
+	var challengeRequest ipchessproto.ChallengeRequest
+	if err := receiveMessage(ctx, stream, &challengeRequest); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("generating challenge response random bytes")
+	c.logger.Debug("generating challenge request response random bytes")
 	rb := make([]byte, 32)
 	if _, err := rand.Read(rb); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("sending challenge response")
-	challengeAskResponse := &ipchessproto.ChallengeAskResponse{
+	c.logger.Debug("sending challenge request response")
+	challengeRequestResponse := &ipchessproto.ChallengeRequestResponse{
 		RandomBytes: rb,
 	}
-	if err := sendMessage(ctx, stream, challengeAskResponse); err != nil {
+	if err := sendMessage(ctx, stream, challengeRequestResponse); err != nil {
 		return nil, err
 	}
 
@@ -134,7 +134,7 @@ func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*MatchIn
 		return nil, err
 	}
 
-	if !bytes.Equal(hashedPreimage, challengeAsk.Commitment) {
+	if !bytes.Equal(hashedPreimage, challengeRequest.Commitment) {
 		return nil, &ChallengeDeclinedError{Reason: CommitmentMismatch}
 	}
 

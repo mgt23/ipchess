@@ -12,11 +12,11 @@ message Move {
   bytes signature = 6;
 }
 
-message ChallengeAsk {
+message ChallengeRequest {
   bytes commitment = 1;
 }
 
-message ChallengeAskResponse {
+message ChallengeRequestResponse {
   bytes random_bytes = 1;
 }
 
