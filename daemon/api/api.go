@@ -104,6 +104,10 @@ func (h *Handler) handleConn(conn *websocket.Conn) {
 			h.logger.Debug("Websocket connection closed")
 			break
 		}
+		// We must not respond to JSONRPC notifications (even errors)
+		if requestID == nil {
+			continue
+		}
 
 		if err == errInvalidParamsType {
 			responseChan <- &jsonRPCResponse{
