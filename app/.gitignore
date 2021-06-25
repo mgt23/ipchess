@@ -1,5 +1,4 @@
 /node_modules
-/build-main
-/build-renderer
+/dist
 /.parcel-cache
 /ipchess

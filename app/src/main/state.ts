@@ -1,141 +1,120 @@
 import childProcess, { ChildProcessWithoutNullStreams } from "child_process";
-import WebSocket from "ws";
+import { app } from "electron";
 import getPort from "get-port";
 import log from "loglevel";
 import path from "path";
-import { app } from "electron";
+import WebSocket from "ws";
+import * as jsonrpc from "./jsonrpc";
 
 export class State {
-    private daemonProcess: ChildProcessWithoutNullStreams | null;
-    private wsConnection: WebSocket | null;
+  daemonProcess: ChildProcessWithoutNullStreams | null;
+  jsonrpcClient: jsonrpc.Client | null;
 
-    private daemonApiPort: number;
+  daemonApiPort: number;
 
-    constructor() {
-        this.daemonProcess = null;
-        this.wsConnection = null;
-        this.daemonApiPort = 0;
+  constructor() {
+    this.daemonProcess = null;
+    this.jsonrpcClient = null;
+    this.daemonApiPort = 0;
+  }
+
+  async start() {
+    await this.startDaemonProcess();
+    await this.startDaemonWebSocketConnection();
+  }
+
+  isClosed(): boolean {
+    const daemonProcessClosed =
+      this.daemonProcess === null || this.daemonProcess.pid === null;
+    const wsConnectionClosed =
+      this.jsonrpcClient === null || this.jsonrpcClient.closed();
+
+    return daemonProcessClosed && wsConnectionClosed;
+  }
+
+  close() {
+    if (this.jsonrpcClient) {
+      this.jsonrpcClient.close();
     }
 
-    async start() {
-        await this.startDaemonProcess();
-        await this.startDaemonWebSocketConnection();
+    if (this.daemonProcess && this.daemonProcess.pid) {
+      process.kill(this.daemonProcess.pid);
+    }
+  }
+
+  terminate() {
+    if (this.jsonrpcClient && !this.jsonrpcClient.closed()) {
+      this.jsonrpcClient.terminate();
     }
 
-    isClosed(): boolean {
-        const daemonProcessClosed =
-            this.daemonProcess === null || this.daemonProcess.pid === null;
-        const wsConnectionClosed =
-            this.wsConnection === null ||
-            this.wsConnection.readyState === WebSocket.CLOSED;
-
-        return daemonProcessClosed && wsConnectionClosed;
+    if (this.daemonProcess && this.daemonProcess.pid) {
+      process.kill(this.daemonProcess.pid, "SIGKILL");
     }
+  }
 
-    close() {
-        if (
-            this.wsConnection &&
-            this.wsConnection.readyState !== WebSocket.CLOSED &&
-            this.wsConnection.readyState !== WebSocket.CLOSING
-        ) {
-            this.wsConnection.close();
-        }
+  private async startDaemonProcess() {
+    this.daemonApiPort = await getPort({
+      port: 3030,
+      host: "127.0.0.1",
+    });
 
-        if (this.daemonProcess && this.daemonProcess.pid) {
-            process.kill(this.daemonProcess.pid);
-        }
-    }
+    log.info(`starting local daemon process API_PORT=${this.daemonApiPort}`);
+    const daemonProcess = childProcess.spawn(
+      path.join(app.getAppPath(), "ipchess"),
+      ["daemon", "--api.port", this.daemonApiPort.toString()],
+      { detached: false, killSignal: "SIGTERM" }
+    );
+    log.debug(`daemon processes started PID=${daemonProcess.pid}`);
 
-    terminate() {
-        if (
-            this.wsConnection &&
-            this.wsConnection.readyState !== WebSocket.CLOSED
-        ) {
-            this.wsConnection.terminate();
-        }
+    daemonProcess.on("close", () => {
+      log.info("daemon process closed");
+      this.daemonProcess = null;
+    });
 
-        if (this.daemonProcess && this.daemonProcess.pid) {
-            process.kill(this.daemonProcess.pid, "SIGKILL");
-        }
-    }
+    this.daemonProcess = daemonProcess;
+  }
 
-    private async startDaemonProcess() {
-        this.daemonApiPort = await getPort({
-            port: 3030,
-            host: "127.0.0.1",
+  private async startDaemonWebSocketConnection() {
+    log.debug(`connecting to daemon API API_PORT=${this.daemonApiPort}`);
+
+    const wsTryConnect = () =>
+      new Promise<boolean>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${this.daemonApiPort}`);
+
+        ws.on("close", () => {
+          resolve(false);
         });
 
-        log.info(
-            `starting local daemon process API_PORT=${this.daemonApiPort}`
-        );
-        const daemonProcess = childProcess.spawn(
-            path.join(app.getAppPath(), "ipchess"),
-            ["daemon", "--api.port", this.daemonApiPort.toString()],
-            { detached: false, killSignal: "SIGTERM" }
-        );
-        log.debug(`daemon processes started PID=${daemonProcess.pid}`);
-
-        daemonProcess.on("close", () => {
-            log.info("daemon process closed");
-            this.daemonProcess = null;
+        ws.on("error", () => {
+          resolve(false);
         });
 
-        this.daemonProcess = daemonProcess;
+        ws.on("open", () => {
+          log.debug("daemon process WebSocket connection opened");
+
+          ws.removeAllListeners();
+          ws.on("error", (err) => {
+            log.error(err);
+          });
+
+          ws.on("close", () => {
+            log.debug("daemon process WebSocket connection closed");
+            this.jsonrpcClient = null;
+          });
+
+          this.jsonrpcClient = new jsonrpc.Client(ws);
+
+          resolve(true);
+        });
+      });
+
+    // keep trying until the daemon's process responds
+    for (;;) {
+      if (await wsTryConnect()) {
+        break;
+      }
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
-
-    private async startDaemonWebSocketConnection() {
-        log.debug(`connecting to daemon API API_PORT=${this.daemonApiPort}`);
-
-        const wsTryConnect = () =>
-            new Promise<boolean>((resolve) => {
-                const ws = new WebSocket(
-                    `ws://127.0.0.1:${this.daemonApiPort}`
-                );
-
-                ws.on("open", () => {
-                    log.debug("daemon process WebSocket connection opened");
-
-                    this.wsConnection = ws;
-                    this.wsConnection.removeAllListeners();
-                    this.wsConnection.on("message", (data: WebSocket.Data) => {
-                        log.debug(
-                            `received data from daemon process DATA=${data.toString()}`
-                        );
-                    });
-                    this.wsConnection.on("error", (err) => {
-                        log.error(err);
-                    });
-                    this.wsConnection.on("close", () => {
-                        log.debug("daemon process WebSocket connection closed");
-                        this.wsConnection = null;
-                    });
-
-                    this.wsConnection.send(
-                        JSON.stringify({
-                            jsonrpc: "2.0",
-                            method: "node_id",
-                            id: 1,
-                        })
-                    );
-
-                    resolve(true);
-                });
-
-                ws.on("close", () => {
-                    resolve(false);
-                });
-                ws.on("error", () => {
-                    resolve(false);
-                });
-            });
-
-        // keep trying until the daemon's process responds
-        for (;;) {
-            if (await wsTryConnect()) {
-                break;
-            }
-
-            await new Promise<void>((resolve) => setTimeout(resolve, 10));
-        }
-    }
+  }
 }
