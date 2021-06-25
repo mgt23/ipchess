@@ -41,10 +41,6 @@ func newChallenge(logger *zap.Logger) *challenge {
 	}
 }
 
-func (c *challenge) Ask(ctx context.Context, stream network.Stream) (bool, error) {
-	return false, nil
-}
-
 // Initiate challenges a peer to a match.
 func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
 	c.logger.Debug("generating challenge ask random bytes")
