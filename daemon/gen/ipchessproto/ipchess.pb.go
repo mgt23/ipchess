@@ -112,16 +112,16 @@ func (x *Move) GetSignature() []byte {
 	return nil
 }
 
-type ChallengeRequest struct {
+type ChallengeAsk struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	PieceColorNegotiationCommitment []byte `protobuf:"bytes,1,opt,name=piece_color_negotiation_commitment,json=pieceColorNegotiationCommitment,proto3" json:"piece_color_negotiation_commitment,omitempty"`
+	Commitment []byte `protobuf:"bytes,1,opt,name=commitment,proto3" json:"commitment,omitempty"`
 }
 
-func (x *ChallengeRequest) Reset() {
-	*x = ChallengeRequest{}
+func (x *ChallengeAsk) Reset() {
+	*x = ChallengeAsk{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_proto_ipchess_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -129,13 +129,13 @@ func (x *ChallengeRequest) Reset() {
 	}
 }
 
-func (x *ChallengeRequest) String() string {
+func (x *ChallengeAsk) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ChallengeRequest) ProtoMessage() {}
+func (*ChallengeAsk) ProtoMessage() {}
 
-func (x *ChallengeRequest) ProtoReflect() protoreflect.Message {
+func (x *ChallengeAsk) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_ipchess_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -147,28 +147,28 @@ func (x *ChallengeRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ChallengeRequest.ProtoReflect.Descriptor instead.
-func (*ChallengeRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeAsk.ProtoReflect.Descriptor instead.
+func (*ChallengeAsk) Descriptor() ([]byte, []int) {
 	return file_proto_ipchess_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ChallengeRequest) GetPieceColorNegotiationCommitment() []byte {
+func (x *ChallengeAsk) GetCommitment() []byte {
 	if x != nil {
-		return x.PieceColorNegotiationCommitment
+		return x.Commitment
 	}
 	return nil
 }
 
-type ChallengeResponse struct {
+type ChallengeAskResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	PieceColorNegotiationRandomBytes []byte `protobuf:"bytes,1,opt,name=piece_color_negotiation_random_bytes,json=pieceColorNegotiationRandomBytes,proto3" json:"piece_color_negotiation_random_bytes,omitempty"`
+	RandomBytes []byte `protobuf:"bytes,1,opt,name=random_bytes,json=randomBytes,proto3" json:"random_bytes,omitempty"`
 }
 
-func (x *ChallengeResponse) Reset() {
-	*x = ChallengeResponse{}
+func (x *ChallengeAskResponse) Reset() {
+	*x = ChallengeAskResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_proto_ipchess_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -176,13 +176,13 @@ func (x *ChallengeResponse) Reset() {
 	}
 }
 
-func (x *ChallengeResponse) String() string {
+func (x *ChallengeAskResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ChallengeResponse) ProtoMessage() {}
+func (*ChallengeAskResponse) ProtoMessage() {}
 
-func (x *ChallengeResponse) ProtoReflect() protoreflect.Message {
+func (x *ChallengeAskResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_ipchess_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -194,19 +194,19 @@ func (x *ChallengeResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ChallengeResponse.ProtoReflect.Descriptor instead.
-func (*ChallengeResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeAskResponse.ProtoReflect.Descriptor instead.
+func (*ChallengeAskResponse) Descriptor() ([]byte, []int) {
 	return file_proto_ipchess_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ChallengeResponse) GetPieceColorNegotiationRandomBytes() []byte {
+func (x *ChallengeAskResponse) GetRandomBytes() []byte {
 	if x != nil {
-		return x.PieceColorNegotiationRandomBytes
+		return x.RandomBytes
 	}
 	return nil
 }
 
-type PieceColorNegotiationPreimage struct {
+type ChallengeCommitmentPreimage struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -214,8 +214,8 @@ type PieceColorNegotiationPreimage struct {
 	Preimage []byte `protobuf:"bytes,1,opt,name=preimage,proto3" json:"preimage,omitempty"`
 }
 
-func (x *PieceColorNegotiationPreimage) Reset() {
-	*x = PieceColorNegotiationPreimage{}
+func (x *ChallengeCommitmentPreimage) Reset() {
+	*x = ChallengeCommitmentPreimage{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_proto_ipchess_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -223,13 +223,13 @@ func (x *PieceColorNegotiationPreimage) Reset() {
 	}
 }
 
-func (x *PieceColorNegotiationPreimage) String() string {
+func (x *ChallengeCommitmentPreimage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PieceColorNegotiationPreimage) ProtoMessage() {}
+func (*ChallengeCommitmentPreimage) ProtoMessage() {}
 
-func (x *PieceColorNegotiationPreimage) ProtoReflect() protoreflect.Message {
+func (x *ChallengeCommitmentPreimage) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_ipchess_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -241,12 +241,12 @@ func (x *PieceColorNegotiationPreimage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PieceColorNegotiationPreimage.ProtoReflect.Descriptor instead.
-func (*PieceColorNegotiationPreimage) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeCommitmentPreimage.ProtoReflect.Descriptor instead.
+func (*ChallengeCommitmentPreimage) Descriptor() ([]byte, []int) {
 	return file_proto_ipchess_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *PieceColorNegotiationPreimage) GetPreimage() []byte {
+func (x *ChallengeCommitmentPreimage) GetPreimage() []byte {
 	if x != nil {
 		return x.Preimage
 	}
@@ -267,24 +267,19 @@ var file_proto_ipchess_proto_rawDesc = []byte{
 	0x12, 0x10, 0x0a, 0x03, 0x73, 0x65, 0x71, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x03, 0x73,
 	0x65, 0x71, 0x12, 0x1c, 0x0a, 0x09, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18,
 	0x06, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x09, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65,
-	0x22, 0x5f, 0x0a, 0x10, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x12, 0x4b, 0x0a, 0x22, 0x70, 0x69, 0x65, 0x63, 0x65, 0x5f, 0x63, 0x6f,
-	0x6c, 0x6f, 0x72, 0x5f, 0x6e, 0x65, 0x67, 0x6f, 0x74, 0x69, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f,
-	0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c,
-	0x52, 0x1f, 0x70, 0x69, 0x65, 0x63, 0x65, 0x43, 0x6f, 0x6c, 0x6f, 0x72, 0x4e, 0x65, 0x67, 0x6f,
-	0x74, 0x69, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e,
-	0x74, 0x22, 0x63, 0x0a, 0x11, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4e, 0x0a, 0x24, 0x70, 0x69, 0x65, 0x63, 0x65, 0x5f,
-	0x63, 0x6f, 0x6c, 0x6f, 0x72, 0x5f, 0x6e, 0x65, 0x67, 0x6f, 0x74, 0x69, 0x61, 0x74, 0x69, 0x6f,
-	0x6e, 0x5f, 0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x5f, 0x62, 0x79, 0x74, 0x65, 0x73, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x0c, 0x52, 0x20, 0x70, 0x69, 0x65, 0x63, 0x65, 0x43, 0x6f, 0x6c, 0x6f, 0x72,
-	0x4e, 0x65, 0x67, 0x6f, 0x74, 0x69, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x61, 0x6e, 0x64, 0x6f,
-	0x6d, 0x42, 0x79, 0x74, 0x65, 0x73, 0x22, 0x3b, 0x0a, 0x1d, 0x50, 0x69, 0x65, 0x63, 0x65, 0x43,
-	0x6f, 0x6c, 0x6f, 0x72, 0x4e, 0x65, 0x67, 0x6f, 0x74, 0x69, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x50,
-	0x72, 0x65, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x72, 0x65, 0x69, 0x6d,
-	0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x70, 0x72, 0x65, 0x69, 0x6d,
-	0x61, 0x67, 0x65, 0x42, 0x12, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x2f, 0x69, 0x70, 0x63, 0x68, 0x65,
-	0x73, 0x73, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x22, 0x2e, 0x0a, 0x0c, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x41, 0x73, 0x6b,
+	0x12, 0x1e, 0x0a, 0x0a, 0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e, 0x74, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x0a, 0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e, 0x74,
+	0x22, 0x39, 0x0a, 0x14, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x41, 0x73, 0x6b,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x21, 0x0a, 0x0c, 0x72, 0x61, 0x6e, 0x64,
+	0x6f, 0x6d, 0x5f, 0x62, 0x79, 0x74, 0x65, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0b,
+	0x72, 0x61, 0x6e, 0x64, 0x6f, 0x6d, 0x42, 0x79, 0x74, 0x65, 0x73, 0x22, 0x39, 0x0a, 0x1b, 0x43,
+	0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65,
+	0x6e, 0x74, 0x50, 0x72, 0x65, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x72,
+	0x65, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x70, 0x72,
+	0x65, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x42, 0x12, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x2f, 0x69, 0x70,
+	0x63, 0x68, 0x65, 0x73, 0x73, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x33,
 }
 
 var (
@@ -301,10 +296,10 @@ func file_proto_ipchess_proto_rawDescGZIP() []byte {
 
 var file_proto_ipchess_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_proto_ipchess_proto_goTypes = []interface{}{
-	(*Move)(nil),                          // 0: ipchess.Move
-	(*ChallengeRequest)(nil),              // 1: ipchess.ChallengeRequest
-	(*ChallengeResponse)(nil),             // 2: ipchess.ChallengeResponse
-	(*PieceColorNegotiationPreimage)(nil), // 3: ipchess.PieceColorNegotiationPreimage
+	(*Move)(nil),                        // 0: ipchess.Move
+	(*ChallengeAsk)(nil),                // 1: ipchess.ChallengeAsk
+	(*ChallengeAskResponse)(nil),        // 2: ipchess.ChallengeAskResponse
+	(*ChallengeCommitmentPreimage)(nil), // 3: ipchess.ChallengeCommitmentPreimage
 }
 var file_proto_ipchess_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -333,7 +328,7 @@ func file_proto_ipchess_proto_init() {
 			}
 		}
 		file_proto_ipchess_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChallengeRequest); i {
+			switch v := v.(*ChallengeAsk); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -345,7 +340,7 @@ func file_proto_ipchess_proto_init() {
 			}
 		}
 		file_proto_ipchess_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChallengeResponse); i {
+			switch v := v.(*ChallengeAskResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -357,7 +352,7 @@ func file_proto_ipchess_proto_init() {
 			}
 		}
 		file_proto_ipchess_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PieceColorNegotiationPreimage); i {
+			switch v := v.(*ChallengeCommitmentPreimage); i {
 			case 0:
 				return &v.state
 			case 1:

@@ -55,10 +55,12 @@ func newMatch(logger *zap.Logger, stream network.Stream, info MatchInfo) *Match 
 	}
 }
 
+// Info returns the match's info.
 func (m *Match) Info() MatchInfo {
 	return m.info
 }
 
+// SendMove blocks while sending a move to the match's peer.
 func (m *Match) SendMove(ctx context.Context, move Move) error {
 	whitePeerBytes, _ := m.info.White.Marshal()
 	blackPeerBytes, _ := m.info.Black.Marshal()
@@ -97,6 +99,7 @@ func (m *Match) SendMove(ctx context.Context, move Move) error {
 	return nil
 }
 
+// ReceiveMove blocks while waiting for a move from the match's peer.
 func (m *Match) ReceiveMove(ctx context.Context) (Move, error) {
 	m.logger.Debug("waiting signed move")
 	var moveMsg ipchessproto.Move

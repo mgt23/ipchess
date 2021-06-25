@@ -12,14 +12,14 @@ message Move {
   bytes signature = 6;
 }
 
-message ChallengeRequest {
-  bytes piece_color_negotiation_commitment = 1;
+message ChallengeAsk {
+  bytes commitment = 1;
 }
 
-message ChallengeResponse {
-  bytes piece_color_negotiation_random_bytes = 1;
+message ChallengeAskResponse {
+  bytes random_bytes = 1;
 }
 
-message PieceColorNegotiationPreimage {
+message ChallengeCommitmentPreimage {
   bytes preimage = 1;
 }

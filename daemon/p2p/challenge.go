@@ -41,52 +41,56 @@ func newChallenge(logger *zap.Logger) *challenge {
 	}
 }
 
+func (c *challenge) Ask(ctx context.Context, stream network.Stream) (bool, error) {
+	return false, nil
+}
+
 // Initiate challenges a peer to a match.
 func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
-	c.logger.Debug("generating piece color negotiation random bytes")
+	c.logger.Debug("generating challenge ask random bytes")
 	rb := make([]byte, 32)
 	if _, err := rand.Read(rb); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("generating challenge piece color negotiation commitment")
+	c.logger.Debug("generating challenge challenge ask commitment")
 	commitment, err := multihash.Encode(rb, multihash.SHA2_256)
 	if err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("sending challenge request")
-	challengeReq := &ipchessproto.ChallengeRequest{
-		PieceColorNegotiationCommitment: commitment,
+	c.logger.Debug("sending challenge ask")
+	challengeAsk := &ipchessproto.ChallengeAsk{
+		Commitment: commitment,
 	}
-	if err := sendMessage(ctx, stream, challengeReq); err != nil {
+	if err := sendMessage(ctx, stream, challengeAsk); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("waiting challenge response")
-	var challengeRes ipchessproto.ChallengeResponse
-	if err := receiveMessage(ctx, stream, &challengeRes); err != nil {
+	c.logger.Debug("waiting challenge ask response")
+	var challengeAskResponse ipchessproto.ChallengeAskResponse
+	if err := receiveMessage(ctx, stream, &challengeAskResponse); err != nil {
 		return nil, err
 	}
 
-	if len(challengeRes.PieceColorNegotiationRandomBytes) == 0 {
+	if len(challengeAskResponse.RandomBytes) == 0 {
 		return nil, &ChallengeDeclinedError{Reason: DeclinedByPeer}
-	} else if len(challengeRes.PieceColorNegotiationRandomBytes) != 32 {
+	} else if len(challengeAskResponse.RandomBytes) != 32 {
 		return nil, &ChallengeDeclinedError{Reason: InvalidRandomBytesLength}
 	}
 
-	c.logger.Debug("sending challenge piece color negotiation commitment preimage")
-	pcnPreimg := &ipchessproto.PieceColorNegotiationPreimage{
+	c.logger.Debug("sending challenge commitment preimage")
+	commitmentPreimage := &ipchessproto.ChallengeCommitmentPreimage{
 		Preimage: rb,
 	}
-	if err := sendMessage(ctx, stream, pcnPreimg); err != nil {
+	if err := sendMessage(ctx, stream, commitmentPreimage); err != nil {
 		return nil, err
 	}
 
 	m := &MatchInfo{}
 
 	for i := 0; i < 32; i++ {
-		m.ID[i] = rb[i] ^ challengeRes.PieceColorNegotiationRandomBytes[i]
+		m.ID[i] = rb[i] ^ challengeAskResponse.RandomBytes[i]
 	}
 
 	if (m.ID[0] & 1) == 0 {
@@ -103,45 +107,45 @@ func (c *challenge) Initiate(ctx context.Context, stream network.Stream) (*Match
 // Handle handles an incoming match challenge from a peer.
 func (c *challenge) Handle(ctx context.Context, stream network.Stream) (*MatchInfo, error) {
 	c.logger.Debug("waiting challenge request")
-	var challengeReq ipchessproto.ChallengeRequest
-	if err := receiveMessage(ctx, stream, &challengeReq); err != nil {
+	var challengeAsk ipchessproto.ChallengeAsk
+	if err := receiveMessage(ctx, stream, &challengeAsk); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("generating piece color negotiation random bytes")
+	c.logger.Debug("generating challenge response random bytes")
 	rb := make([]byte, 32)
 	if _, err := rand.Read(rb); err != nil {
 		return nil, err
 	}
 
 	c.logger.Debug("sending challenge response")
-	challengeRes := &ipchessproto.ChallengeResponse{
-		PieceColorNegotiationRandomBytes: rb,
+	challengeAskResponse := &ipchessproto.ChallengeAskResponse{
+		RandomBytes: rb,
 	}
-	if err := sendMessage(ctx, stream, challengeRes); err != nil {
+	if err := sendMessage(ctx, stream, challengeAskResponse); err != nil {
 		return nil, err
 	}
 
-	c.logger.Debug("waiting piece color negotiation preimage")
-	var pcnPreimg ipchessproto.PieceColorNegotiationPreimage
-	if err := receiveMessage(ctx, stream, &pcnPreimg); err != nil {
+	c.logger.Debug("waiting challenge commitment preimage")
+	var commitmentPreimage ipchessproto.ChallengeCommitmentPreimage
+	if err := receiveMessage(ctx, stream, &commitmentPreimage); err != nil {
 		return nil, err
 	}
 
 	c.logger.Debug("checking piece color negotiation preimage")
-	preimgHash, err := multihash.Encode(pcnPreimg.Preimage, multihash.SHA2_256)
+	hashedPreimage, err := multihash.Encode(commitmentPreimage.Preimage, multihash.SHA2_256)
 	if err != nil {
 		return nil, err
 	}
 
-	if !bytes.Equal(preimgHash, challengeReq.PieceColorNegotiationCommitment) {
+	if !bytes.Equal(hashedPreimage, challengeAsk.Commitment) {
 		return nil, &ChallengeDeclinedError{Reason: CommitmentMismatch}
 	}
 
 	m := &MatchInfo{}
 
 	for i := 0; i < 32; i++ {
-		m.ID[i] = rb[i] ^ pcnPreimg.Preimage[i]
+		m.ID[i] = rb[i] ^ commitmentPreimage.Preimage[i]
 	}
 
 	if (m.ID[0] & 1) == 1 {
