@@ -2,3 +2,4 @@
 /dist
 /.parcel-cache
 /ipchess
+/src/renderer/tailwind.css
