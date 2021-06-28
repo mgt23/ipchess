@@ -1,3 +1,3 @@
 daemon-bin:
-	cd ../daemon && make build
-	cp ../daemon/ipchess .
+	cd ../daemon && cargo build --release
+	cp ../daemon/target/release/daemon ./ipchessd

@@ -1,0 +1,25 @@
+[package]
+name = "daemon"
+version = "0.1.0"
+authors = ["Felipe Rosa <felipe.sgrosa@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+clap = "3.0.0-beta.2"
+ctrlc = { version = "3", features = ["termination"] }
+env_logger = "0.8"
+futures = "0.3"
+jsonrpsee = { version = "0.2", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", rev = "e8fed53598696a45a26866408534cfa186b23d4a", features = ["tcp-tokio", "dns-tokio"] }
+log = "0.4"
+prost = "0.7"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+
+[build-dependencies]
+prost-build = "0.7"

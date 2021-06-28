@@ -1,0 +1,22 @@
+syntax = "proto3";
+package ipchessproto;
+
+message Message {
+    message Challenge {
+        bytes commitment = 1;
+    }
+
+    message ChallengeAccept {
+        bytes random = 1;
+    }
+
+    message ChallengeReveal {
+        bytes preimage = 1;
+    }
+
+    oneof payload {
+        Challenge challenge = 1;
+        ChallengeAccept challenge_accept = 2;
+        ChallengeReveal challenge_reveal = 3;
+    }
+}

@@ -60,8 +60,8 @@ export class State {
 
     log.info(`starting local daemon process API_PORT=${this.daemonApiPort}`);
     const daemonProcess = childProcess.spawn(
-      path.join(app.getAppPath(), "ipchess"),
-      ["daemon", "--api.port", this.daemonApiPort.toString()],
+      path.join(app.getAppPath(), "ipchessd"),
+      ["--api-port", this.daemonApiPort.toString()],
       { detached: false, killSignal: "SIGTERM" }
     );
     log.debug(`daemon processes started PID=${daemonProcess.pid}`);
