@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     task::Poll,
 };
 
@@ -57,7 +57,7 @@ pub struct Ipchess {
     pending_challenges: HashMap<PeerId, PendingChallenge>,
     sent_challenges: HashMap<PeerId, SentChallenge>,
 
-    peer_addresses: HashMap<PeerId, Vec<Multiaddr>>,
+    peer_addresses: HashMap<PeerId, HashSet<Multiaddr>>,
 }
 
 impl Ipchess {
@@ -72,11 +72,15 @@ impl Ipchess {
     }
 
     pub fn add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
-        let addrs = self.peer_addresses.entry(peer_id).or_default();
-        addrs.push(addr);
+        self.peer_addresses.entry(peer_id).or_default().insert(addr);
     }
 
     pub fn challenge_peer(&mut self, peer_id: PeerId) {
+        if self.sent_challenges.contains_key(&peer_id) {
+            log::debug!("duplicate challenge request to peer {}, ignoring", peer_id);
+            return;
+        }
+
         let mut thread_rng = rand::thread_rng();
         let preimage = thread_rng.gen::<[u8; 32]>().to_vec();
 
@@ -124,7 +128,7 @@ impl NetworkBehaviour for Ipchess {
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<libp2p::Multiaddr> {
         self.peer_addresses
             .get(peer_id)
-            .map_or(vec![], |addrs| addrs.clone())
+            .map_or(vec![], |addrs| addrs.clone().into_iter().collect())
     }
 
     fn inject_connected(&mut self, _peer_id: &PeerId) {}
