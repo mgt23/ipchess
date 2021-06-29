@@ -151,11 +151,11 @@ impl NetworkBehaviour for Ipchess {
         >,
     > {
         // drain handler out events list
-        while let Some((peer_id, conn_id, event)) = self.handler_out.pop_front() {
+        if let Some((peer_id, conn_id, event)) = self.handler_out.pop_front() {
             match event {
                 IpchessHandlerEventOut::ChallengeReceived { commitment } => {
                     self.pending_challenges.insert(
-                        peer_id.clone(),
+                        peer_id,
                         PendingChallenge {
                             commitment,
                             conn_id,
@@ -193,7 +193,7 @@ impl NetworkBehaviour for Ipchess {
                             ));
                         } else {
                             self.handler_in.push_back((
-                                peer_id.clone(),
+                                peer_id,
                                 Some(conn_id),
                                 IpchessHandlerEventIn::ChallengePoisoned,
                             ));
@@ -208,7 +208,7 @@ impl NetworkBehaviour for Ipchess {
                 IpchessHandlerEventOut::ChallengeAccepted { random } => {
                     if let Some(sent_challenge) = self.sent_challenges.remove(&peer_id) {
                         self.handler_in.push_back((
-                            peer_id.clone(),
+                            peer_id,
                             Some(conn_id),
                             IpchessHandlerEventIn::ChallengeReveal {
                                 preimage: sent_challenge.preimage.clone(),
@@ -230,7 +230,7 @@ impl NetworkBehaviour for Ipchess {
         }
 
         // drain handler in events list
-        while let Some((peer_id, conn_id, event)) = self.handler_in.pop_front() {
+        if let Some((peer_id, conn_id, event)) = self.handler_in.pop_front() {
             let handler = match conn_id {
                 Some(conn_id) => NotifyHandler::One(conn_id),
                 None => NotifyHandler::Any,

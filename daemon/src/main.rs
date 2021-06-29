@@ -24,12 +24,12 @@ async fn main() {
 
     log::info!("Local peer id {}", local_peer_id);
 
-    let behaviour = behaviour::Behaviour::new(local_peer_id.clone(), id_key_pair.public());
+    let behaviour = behaviour::Behaviour::new(local_peer_id, id_key_pair.public());
 
     let transport =
         libp2p::tokio_development_transport(id_key_pair).expect("failed creating transport");
 
-    let mut swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
+    let mut swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, local_peer_id)
         .executor(Box::new(|fut| {
             tokio::spawn(fut);
         }))

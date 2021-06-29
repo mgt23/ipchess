@@ -14,7 +14,7 @@ use libp2p::{NetworkBehaviour, PeerId};
 
 use crate::protocol::{Ipchess, IpchessEvent};
 
-const BOOTSTRAP_PEER_ADDRS: [&'static str; 6] = [
+const BOOTSTRAP_PEER_ADDRS: [&str; 6] = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
@@ -49,7 +49,7 @@ pub struct Behaviour {
 impl Behaviour {
     pub fn new(peer_id: PeerId, public_key: libp2p::identity::PublicKey) -> Self {
         let kad_config = KademliaConfig::default();
-        let mut kad = Kademlia::with_config(peer_id.clone(), MemoryStore::new(peer_id), kad_config);
+        let mut kad = Kademlia::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
 
         for addr in BOOTSTRAP_PEER_ADDRS.iter() {
             let mut ma = libp2p::multiaddr::Multiaddr::from_str(addr)
@@ -113,7 +113,7 @@ impl Behaviour {
         _params: &mut impl libp2p::swarm::PollParameters
     ) -> Poll<NetworkBehaviourAction<<<<Self as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, <Self as NetworkBehaviour>::OutEvent>>{
         // drain out events
-        while let Some(out_event) = self.out_events.pop_front() {
+        if let Some(out_event) = self.out_events.pop_front() {
             return Poll::Ready(out_event);
         }
 

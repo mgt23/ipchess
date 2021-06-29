@@ -95,8 +95,8 @@ impl Server {
         tokio::spawn(server.start());
 
         Ok(Server {
-            local_addr,
             event_rx,
+            local_addr,
             subscribers,
         })
     }
@@ -110,7 +110,7 @@ impl Server {
         for i in (0..subscribers.len()).rev() {
             let mut sub = subscribers.swap_remove(i);
 
-            if let Ok(_) = sub.send(&notification) {
+            if sub.send(&notification).is_ok() {
                 subscribers.push(sub);
             }
         }
