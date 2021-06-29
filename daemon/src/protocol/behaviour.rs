@@ -7,7 +7,7 @@ use libp2p::{
     core::connection::ConnectionId,
     multihash::Hasher,
     swarm::{NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, ProtocolsHandler},
-    PeerId,
+    Multiaddr, PeerId,
 };
 use rand::Rng;
 use thiserror::Error;
@@ -56,6 +56,8 @@ pub struct Ipchess {
 
     pending_challenges: HashMap<PeerId, PendingChallenge>,
     sent_challenges: HashMap<PeerId, SentChallenge>,
+
+    peer_addresses: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl Ipchess {
@@ -65,7 +67,13 @@ impl Ipchess {
             handler_out: VecDeque::new(),
             pending_challenges: HashMap::new(),
             sent_challenges: HashMap::new(),
+            peer_addresses: HashMap::new(),
         }
+    }
+
+    pub fn add_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
+        let addrs = self.peer_addresses.entry(peer_id).or_default();
+        addrs.push(addr);
     }
 
     pub fn challenge_peer(&mut self, peer_id: PeerId) {
@@ -113,8 +121,10 @@ impl NetworkBehaviour for Ipchess {
         IpchessHandler::new()
     }
 
-    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<libp2p::Multiaddr> {
-        vec![]
+    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<libp2p::Multiaddr> {
+        self.peer_addresses
+            .get(peer_id)
+            .map_or(vec![], |addrs| addrs.clone())
     }
 
     fn inject_connected(&mut self, _peer_id: &PeerId) {}

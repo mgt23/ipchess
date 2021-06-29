@@ -4,6 +4,7 @@ use clap::Clap;
 use libp2p::futures::StreamExt;
 
 mod api;
+mod behaviour;
 mod protocol;
 
 #[derive(Clap)]
@@ -23,10 +24,10 @@ async fn main() {
 
     log::info!("Local peer id {}", local_peer_id);
 
+    let behaviour = behaviour::Behaviour::new(local_peer_id.clone(), id_key_pair.public());
+
     let transport =
         libp2p::tokio_development_transport(id_key_pair).expect("failed creating transport");
-
-    let behaviour = protocol::Ipchess::new();
 
     let mut swarm = libp2p::swarm::SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
         .executor(Box::new(|fut| {
@@ -55,19 +56,31 @@ async fn main() {
                 match &swarm_event {
                     libp2p::swarm::SwarmEvent::NewListenAddr(addr) => {
                         log::info!("Swarm listening at {}", addr);
+                        swarm.behaviour_mut().bootstrap();
+                    }
+
+                    libp2p::swarm::SwarmEvent::Behaviour(e) => {
+                        match e {
+                            behaviour::BehaviourEvent::MatchReady => {
+                                api_server.notify(api::ServerNotification::MatchReady);
+                            },
+                        }
                     }
 
                     _ => {}
                 }
             }
 
-            api_event = api_server.next() => {
+            Some(api_event) = api_server.next() => {
                 match api_event {
-                    Some(api::ServerEvent::NodeIdRequest(res_tx)) => {
+                    api::ServerEvent::NodeIdRequest(res_tx) => {
                         let _ = res_tx.send(api::NodeIdResponse(*swarm.local_peer_id()));
                     }
 
-                    None => {}
+                    api::ServerEvent::ChallengePeerRequest(peer_id, res_tx) => {
+                        swarm.behaviour_mut().challenge_peer(peer_id);
+                        let _ = res_tx.send(api::ChallengePeerResponse);
+                    }
                 }
             }
 

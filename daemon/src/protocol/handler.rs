@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use super::ipchessproto;
 
+#[derive(Debug)]
 pub enum IpchessHandlerEventIn {
     Challenge { commitment: Vec<u8> },
     ChallengeAccept { random: Vec<u8> },
@@ -21,6 +22,7 @@ pub enum IpchessHandlerEventIn {
     ChallengePoisoned,
 }
 
+#[derive(Debug)]
 pub enum IpchessHandlerEventOut {
     ChallengeReceived { commitment: Vec<u8> },
     ChallengeRevealReceived { preimage: Vec<u8> },
