@@ -77,6 +77,10 @@ async fn main() {
                         let _ = res_tx.send(api::NodeIdResponse(*swarm.local_peer_id()));
                     }
 
+                    api::ServerEvent::IsConnectedRequest(res_tx) => {
+                        let _ = res_tx.send(api::IsConnectedResponse(swarm.behaviour_mut().is_connected()));
+                    }
+
                     api::ServerEvent::ChallengePeerRequest(peer_id, res_tx) => {
                         swarm.behaviour_mut().challenge_peer(peer_id);
                         let _ = res_tx.send(api::ChallengePeerResponse);

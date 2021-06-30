@@ -32,8 +32,12 @@ impl Serialize for ChallengePeerResponse {
     }
 }
 
+#[derive(Serialize)]
+pub struct IsConnectedResponse(pub bool);
+
 pub enum ServerEvent {
     NodeIdRequest(oneshot::Sender<NodeIdResponse>),
+    IsConnectedRequest(oneshot::Sender<IsConnectedResponse>),
     ChallengePeerRequest(libp2p::PeerId, oneshot::Sender<ChallengePeerResponse>),
 }
 
@@ -73,6 +77,13 @@ impl Server {
             let peer_id = libp2p::PeerId::from_str(params_str.as_str()).unwrap();
 
             let _ = event_tx.send(ServerEvent::ChallengePeerRequest(peer_id, res_tx));
+
+            async move { Ok(res_rx.await.unwrap()) }.boxed()
+        })?;
+
+        module.register_async_method("is_connected", move |_, event_tx| {
+            let (res_tx, res_rx) = oneshot::channel::<IsConnectedResponse>();
+            let _ = event_tx.send(ServerEvent::IsConnectedRequest(res_tx));
 
             async move { Ok(res_rx.await.unwrap()) }.boxed()
         })?;

@@ -1,10 +1,11 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
 use std::task::Poll;
 
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
-use libp2p::kad::KademliaConfig;
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent, IdentifyInfo};
+use libp2p::kad::{self, KademliaConfig};
 use libp2p::kad::{store::MemoryStore, Kademlia, KademliaEvent};
+use libp2p::swarm::protocols_handler::DummyProtocolsHandler;
 use libp2p::swarm::{
     IntoProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NetworkBehaviourEventProcess,
     ProtocolsHandler,
@@ -23,6 +24,93 @@ const BOOTSTRAP_PEER_ADDRS: [&str; 6] = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
 ];
 
+pub enum PeerStoreEvent {}
+
+pub struct PeerStore {
+    connected_peers: HashMap<PeerId, Option<IdentifyInfo>>,
+}
+
+impl PeerStore {
+    fn new() -> Self {
+        Self {
+            connected_peers: HashMap::new(),
+        }
+    }
+
+    fn add_identify_info(&mut self, peer_id: PeerId, info: IdentifyInfo) {
+        self.connected_peers
+            .entry(peer_id)
+            .and_modify(|e| *e = Some(info));
+    }
+
+    fn peers_for_protocol<'a>(&'a self, protocol: &'a str) -> impl Iterator<Item = PeerId> + 'a {
+        self.connected_peers
+            .iter()
+            .filter_map(move |(peer_id, info)| match info {
+                Some(info) => {
+                    let found = info.protocols.iter().any(|p| p == protocol);
+
+                    if found {
+                        Some(*peer_id)
+                    } else {
+                        None
+                    }
+                }
+
+                None => None,
+            })
+    }
+}
+
+impl NetworkBehaviour for PeerStore {
+    type ProtocolsHandler = DummyProtocolsHandler;
+    type OutEvent = PeerStoreEvent;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        DummyProtocolsHandler::default()
+    }
+
+    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<libp2p::Multiaddr> {
+        vec![]
+    }
+
+    fn inject_connected(&mut self, _peer_id: &PeerId) {}
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _conn_id: &libp2p::core::connection::ConnectionId,
+        _endpoint: &libp2p::core::ConnectedPoint,
+    ) {
+        self.connected_peers.entry(*peer_id).or_default();
+    }
+
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        self.connected_peers.remove(&peer_id);
+    }
+
+    fn inject_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection: libp2p::core::connection::ConnectionId,
+        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+    }
+
+    fn poll(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+        _params: &mut impl libp2p::swarm::PollParameters,
+    ) -> Poll<
+        NetworkBehaviourAction<
+            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
+            Self::OutEvent,
+        >,
+    > {
+        Poll::Pending
+    }
+}
+
 pub enum BehaviourEvent {
     MatchReady,
 }
@@ -34,6 +122,7 @@ pub struct Behaviour {
     identify: Identify,
     kad: Kademlia<MemoryStore>,
     ipchess: Ipchess,
+    peer_store: PeerStore,
 
     #[behaviour(ignore)]
     challenged_peer_id: Option<PeerId>,
@@ -78,6 +167,7 @@ impl Behaviour {
             identify,
             kad,
             ipchess,
+            peer_store: PeerStore::new(),
 
             challenged_peer_id: None,
             out_events: VecDeque::new(),
@@ -107,6 +197,16 @@ impl Behaviour {
         }
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.peer_store
+            .peers_for_protocol(
+                std::str::from_utf8(kad::protocol::DEFAULT_PROTO_NAME)
+                    .expect("Kademlia protocol name is weird"),
+            )
+            .count()
+            > 0
+    }
+
     fn poll(
         &mut self,
         _cx: &mut std::task::Context<'_>,
@@ -124,6 +224,8 @@ impl Behaviour {
 impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
     fn inject_event(&mut self, event: IdentifyEvent) {
         if let IdentifyEvent::Received { peer_id, info } = event {
+            self.peer_store.add_identify_info(peer_id, info.clone());
+
             let challenged_peer_id = if let Some(challenged_peer_id) = &self.challenged_peer_id {
                 *challenged_peer_id
             } else {
@@ -176,4 +278,8 @@ impl NetworkBehaviourEventProcess<IpchessEvent> for Behaviour {
             _ => {}
         }
     }
+}
+
+impl NetworkBehaviourEventProcess<PeerStoreEvent> for Behaviour {
+    fn inject_event(&mut self, _: PeerStoreEvent) {}
 }

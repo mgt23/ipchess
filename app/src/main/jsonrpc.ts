@@ -48,9 +48,9 @@ export class Client {
         if (resolve) {
           delete this.pendingRequests[id];
 
-          if (parsedMessage.result) {
+          if (parsedMessage.result !== undefined) {
             resolve(parsedMessage.result);
-          } else if (parsedMessage.error) {
+          } else if (parsedMessage.error !== undefined) {
             resolve(Promise.reject(parsedMessage.error as Error));
           }
         }

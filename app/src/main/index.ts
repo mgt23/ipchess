@@ -89,6 +89,16 @@ async function main() {
   await appStateStart;
 
   if (appState.jsonrpcClient) {
+    for (;;) {
+      const isConnected = await appState.jsonrpcClient.call("is_connected");
+
+      if (isConnected) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
     const nodeId = await appState.jsonrpcClient.call("node_id");
     window.webContents.send("app.initialized", { nodeId });
   }
