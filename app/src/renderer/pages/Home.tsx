@@ -1,4 +1,5 @@
-import React from "react";
+import { ipcRenderer } from "electron";
+import React, { useState } from "react";
 import { AppMessage, AppState } from "../state";
 
 export type HomePageProps = {
@@ -7,6 +8,8 @@ export type HomePageProps = {
 };
 
 const HomePage = ({ state, dispatch }: HomePageProps) => {
+  const [challengedPeerId, setChallengedPeerId] = useState("");
+
   return (
     <div className="flex flex-col items-center space-y-4 bg-primary text-white p-4 h-screen">
       <div className="flex-initial text-4xl text-center">
@@ -25,9 +28,7 @@ const HomePage = ({ state, dispatch }: HomePageProps) => {
       <div className="flex-initial h-6"></div>
 
       <div className="bg-primary-light text-white flex flex-col md:w-1/2 lg:w-1/4 min-w-min p-4 space-y-4 rounded shadow-2xl">
-        <div className="flex-initial font-bold text-xl mb-4">
-          Challenge Peer
-        </div>
+        <div className="flex-initial font-bold text-xl">Challenge Peer</div>
 
         <div className="flex flex-col space-y-2">
           <div>Peer ID</div>
@@ -35,6 +36,8 @@ const HomePage = ({ state, dispatch }: HomePageProps) => {
             <input
               className="rounded text-black focus:outline-none md:w-full lg:w-1/2"
               type="text"
+              value={challengedPeerId}
+              onChange={(event) => setChallengedPeerId(event.target.value)}
             ></input>
           </div>
         </div>
@@ -42,11 +45,51 @@ const HomePage = ({ state, dispatch }: HomePageProps) => {
         <div>
           <button
             className="bg-light text-primary focus:outline-none hover:bg-light-light font-bold rounded p-1"
-            onClick={() => dispatch({ type: "challenge-accepted" })}
+            onClick={() => {
+              ipcRenderer.invoke("challenge.send", challengedPeerId);
+              dispatch({
+                type: "peer-challenged",
+                payload: { peerId: challengedPeerId },
+              });
+            }}
           >
             Challenge
           </button>
         </div>
+      </div>
+
+      <div className="bg-primary-light text-white flex flex-col md:w-1/2 lg:w-1/4 min-w-min p-4 space-y-4 rounded shadow-2xl overflow-y-auto">
+        <div className="flex-initial font-bold text-xl">Peer Challenges</div>
+        {state.receivedChallenges.length > 0 ? (
+          state.receivedChallenges.map((challenge) => (
+            <div className="flex flex-col space-y-2">
+              <div>
+                Challenge from peer:{" "}
+                <span className="font-bold">{challenge.peerId}</span>
+              </div>
+
+              <div className="flex flex-row space-x-2">
+                <button
+                  className="bg-light text-primary focus:outline-none hover:bg-light-light font-bold rounded p-1"
+                  onClick={() => {
+                    ipcRenderer.invoke("challenge.accept", challenge.peerId);
+                  }}
+                >
+                  Accept
+                </button>
+
+                <button
+                  className="bg-primary text-white focus:outline-none hover:bg-light-light font-bold rounded p-1"
+                  onClick={() => {}}
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div>No challenges yet</div>
+        )}
       </div>
     </div>
   );

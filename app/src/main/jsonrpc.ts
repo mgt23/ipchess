@@ -9,15 +9,24 @@ export type Error = {
 
 type ClientPendingRequests = { [key in string | number]: (value: any) => void };
 
+export type NotificationListener = (
+  subscriptionId: number,
+  method: string,
+  data: any
+) => void;
+
 export class Client {
   private conn: WebSocket;
   private pendingRequests: ClientPendingRequests;
   private requestIdCounter: number;
 
+  private notificationListeners: Array<NotificationListener>;
+
   constructor(conn: WebSocket) {
     this.conn = conn;
     this.pendingRequests = {};
     this.requestIdCounter = 1;
+    this.notificationListeners = [];
 
     this.conn.on("message", (data) => {
       log.debug(`message from daemon process DATA=${data.toString("utf-8")}`);
@@ -52,10 +61,22 @@ export class Client {
             resolve(parsedMessage.result);
           } else if (parsedMessage.error !== undefined) {
             resolve(Promise.reject(parsedMessage.error as Error));
+          } else {
+            log.debug("missing result or error fields in JSONRPC response");
           }
         }
+      } else if (parsedMessage.method !== undefined && id === undefined) {
+        const { subscription, result } = parsedMessage.params;
+
+        this.notificationListeners.forEach((listener) =>
+          listener(subscription, parsedMessage.method, result)
+        );
       }
     });
+  }
+
+  addNotificationListener(listener: NotificationListener) {
+    this.notificationListeners.push(listener);
   }
 
   terminate() {
@@ -83,6 +104,7 @@ export class Client {
       params,
     };
 
+    log.debug(`sending JSONRPC request ${JSON.stringify(request)}`);
     this.conn.send(JSON.stringify(request));
 
     return new Promise((resolve) => {

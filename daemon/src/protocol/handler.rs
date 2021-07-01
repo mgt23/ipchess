@@ -188,7 +188,7 @@ impl ProtocolsHandler for IpchessHandler {
             <Self::OutboundProtocol as OutboundUpgradeSend>::Error,
         >,
     ) {
-        log::debug!("dial upgrade error: {:?}", error);
+        log::debug!("Dial upgrade error: {:?}", error);
         self.keep_alive = KeepAlive::No;
     }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import { MenuItemConstructorOptions } from "electron/main";
 import log, { LoggingMethod } from "loglevel";
 import { State } from "./state";
@@ -89,6 +89,43 @@ async function main() {
   await appStateStart;
 
   if (appState.jsonrpcClient) {
+    appState.jsonrpcClient.addNotificationListener(
+      (subscriptionId, method, data) => {
+        if (method !== "subscribe_events") {
+          log.warn(
+            `ignoring daemon notification METHOD=${method} DATA=${JSON.stringify(
+              data
+            )}`
+          );
+          return;
+        }
+
+        log.debug(
+          `received notification SUBSCRIPTION=${subscriptionId} METHOD=${method} DATA=${JSON.stringify(
+            data
+          )}`
+        );
+
+        const { event_type: eventType, data: eventData } = data;
+
+        switch (eventType) {
+          case "peer_challenge":
+            {
+              const { peer_id: peerId } = eventData;
+              window.webContents.send("challenge.received", { peerId });
+            }
+            break;
+
+          case "match_ready":
+            {
+              const { peer_id: peerId } = eventData;
+              window.webContents.send("match.ready", { peerId });
+            }
+            break;
+        }
+      }
+    );
+
     for (;;) {
       const isConnected = await appState.jsonrpcClient.call("is_connected");
 
@@ -99,9 +136,28 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
+    await appState.jsonrpcClient.call("subscribe_events");
     const nodeId = await appState.jsonrpcClient.call("node_id");
     window.webContents.send("app.initialized", { nodeId });
   }
+
+  ipcMain.handle("challenge.send", async (_event, peerId) => {
+    if (appState.jsonrpcClient === null) {
+      return;
+    }
+
+    log.debug(`challenging peer ${peerId}`);
+    await appState.jsonrpcClient.call("challenge_peer", [peerId]);
+  });
+
+  ipcMain.handle("challenge.accept", async (_event, peerId) => {
+    if (appState.jsonrpcClient === null) {
+      return;
+    }
+
+    log.debug(`accepting peer challenge ${peerId}`);
+    await appState.jsonrpcClient.call("accept_peer_challenge", [peerId]);
+  });
 }
 
 app.on("window-all-closed", () => {

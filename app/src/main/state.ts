@@ -66,6 +66,14 @@ export class State {
     );
     log.debug(`daemon processes started PID=${daemonProcess.pid}`);
 
+    daemonProcess.stderr.on("data", (data: Buffer) => {
+      log.debug(data.toString().trim());
+    });
+
+    daemonProcess.stdout.on("data", (data: Buffer) => {
+      log.debug(data.toString().trim());
+    });
+
     daemonProcess.on("close", () => {
       log.info("daemon process closed");
       this.daemonProcess = null;

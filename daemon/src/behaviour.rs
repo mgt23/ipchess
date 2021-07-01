@@ -15,11 +15,10 @@ use libp2p::{NetworkBehaviour, PeerId};
 
 use crate::protocol::{Ipchess, IpchessEvent};
 
-const BOOTSTRAP_PEER_ADDRS: [&str; 6] = [
+const BOOTSTRAP_PEER_ADDRS: [&str; 5] = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
     "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-    "/ip4/104.131.131.82/udp/4001/quic/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
 ];
@@ -111,8 +110,10 @@ impl NetworkBehaviour for PeerStore {
     }
 }
 
+#[derive(Debug)]
 pub enum BehaviourEvent {
-    MatchReady,
+    PeerChallenge { peer_id: PeerId },
+    MatchReady { peer_id: PeerId },
 }
 
 #[derive(NetworkBehaviour)]
@@ -137,7 +138,11 @@ pub struct Behaviour {
 
 impl Behaviour {
     pub fn new(peer_id: PeerId, public_key: libp2p::identity::PublicKey) -> Self {
-        let kad_config = KademliaConfig::default();
+        let mut kad_config = KademliaConfig::default();
+        kad_config.set_record_ttl(Some(std::time::Duration::from_secs(0)));
+        kad_config.set_provider_record_ttl(Some(std::time::Duration::from_secs(0)));
+        kad_config.set_kbucket_inserts(kad::KademliaBucketInserts::Manual);
+
         let mut kad = Kademlia::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
 
         for addr in BOOTSTRAP_PEER_ADDRS.iter() {
@@ -179,7 +184,7 @@ impl Behaviour {
     }
 
     pub fn challenge_peer(&mut self, peer_id: PeerId) {
-        log::info!("Challenging peer {}", peer_id);
+        log::debug!("Challenging peer {}", peer_id);
         self.challenged_peer_id = Some(peer_id);
 
         if self.addresses_of_peer(&peer_id).is_empty() {
@@ -195,6 +200,11 @@ impl Behaviour {
             );
             self.ipchess.challenge_peer(peer_id);
         }
+    }
+
+    pub fn accept_peer_challenge(&mut self, peer_id: PeerId) {
+        log::debug!("Accepting peer challenge {}", peer_id);
+        self.ipchess.accept_peer_challenge(peer_id);
     }
 
     pub fn is_connected(&self) -> bool {
@@ -224,6 +234,10 @@ impl Behaviour {
 impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
     fn inject_event(&mut self, event: IdentifyEvent) {
         if let IdentifyEvent::Received { peer_id, info } = event {
+            for addr in info.listen_addrs.iter() {
+                self.kad.add_address(&peer_id, addr.clone());
+            }
+
             self.peer_store.add_identify_info(peer_id, info.clone());
 
             let challenged_peer_id = if let Some(challenged_peer_id) = &self.challenged_peer_id {
@@ -237,8 +251,9 @@ impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
             }
 
             log::debug!(
-                "Identified challenged peer {}, starting challenge request",
-                peer_id
+                "Identified challenged peer {} {:?}, starting challenge request",
+                peer_id,
+                info,
             );
 
             for addr in info.listen_addrs {
@@ -258,24 +273,28 @@ impl NetworkBehaviourEventProcess<IpchessEvent> for Behaviour {
     fn inject_event(&mut self, event: IpchessEvent) {
         match event {
             IpchessEvent::PeerChallenge { peer_id } => {
-                log::info!("Accepting peer challenge {}", peer_id);
-                self.ipchess.accept_peer_challenge(peer_id);
+                self.out_events
+                    .push_back(NetworkBehaviourAction::GenerateEvent(
+                        BehaviourEvent::PeerChallenge { peer_id },
+                    ));
             }
 
             IpchessEvent::MatchReady {
                 peer_id,
                 match_data,
             } => {
-                log::info!("Match ready {} {:?}", peer_id, match_data);
+                log::debug!("Match ready {} {:?}", peer_id, match_data);
                 self.challenged_peer_id = None;
 
                 self.out_events
                     .push_back(NetworkBehaviourAction::GenerateEvent(
-                        BehaviourEvent::MatchReady,
+                        BehaviourEvent::MatchReady { peer_id },
                     ));
             }
 
-            _ => {}
+            IpchessEvent::Error(err) => {
+                log::debug!("Error {:?}", err);
+            }
         }
     }
 }

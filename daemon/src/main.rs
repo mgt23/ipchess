@@ -3,9 +3,12 @@ use std::str::FromStr;
 use clap::Clap;
 use libp2p::futures::StreamExt;
 
+use crate::utils::SerializablePeerId;
+
 mod api;
 mod behaviour;
 mod protocol;
+mod utils;
 
 #[derive(Clap)]
 struct Opts {
@@ -35,7 +38,7 @@ async fn main() {
         }))
         .build();
     swarm
-        .listen_on(libp2p::Multiaddr::from_str("/ip4/127.0.0.1/tcp/0").unwrap())
+        .listen_on(libp2p::Multiaddr::from_str("/ip4/0.0.0.0/tcp/0").unwrap())
         .expect("swarm listen_on failed");
 
     let mut api_server = api::Server::new(opts.api_port)
@@ -53,7 +56,7 @@ async fn main() {
     loop {
         tokio::select! {
             swarm_event = swarm.select_next_some() => {
-                match &swarm_event {
+                match swarm_event {
                     libp2p::swarm::SwarmEvent::NewListenAddr(addr) => {
                         log::info!("Swarm listening at {}", addr);
                         swarm.behaviour_mut().bootstrap();
@@ -61,20 +64,30 @@ async fn main() {
 
                     libp2p::swarm::SwarmEvent::Behaviour(e) => {
                         match e {
-                            behaviour::BehaviourEvent::MatchReady => {
-                                api_server.notify(api::ServerNotification::MatchReady);
+                            behaviour::BehaviourEvent::PeerChallenge { peer_id } => {
+                                api_server.notify_event(api::ServerEventNotification::PeerChallenge {
+                                    peer_id: SerializablePeerId(peer_id),
+                                });
+                            }
+
+                            behaviour::BehaviourEvent::MatchReady { peer_id } => {
+                                api_server.notify_event(api::ServerEventNotification::MatchReady {
+                                    peer_id: SerializablePeerId(peer_id),
+                                });
                             },
                         }
                     }
 
-                    _ => {}
+                    e => {
+                        log::debug!("Swarm event {:?}", e);
+                    }
                 }
             }
 
             Some(api_event) = api_server.next() => {
                 match api_event {
                     api::ServerEvent::NodeIdRequest(res_tx) => {
-                        let _ = res_tx.send(api::NodeIdResponse(*swarm.local_peer_id()));
+                        let _ = res_tx.send(api::NodeIdResponse(SerializablePeerId(*swarm.local_peer_id())));
                     }
 
                     api::ServerEvent::IsConnectedRequest(res_tx) => {
@@ -84,6 +97,11 @@ async fn main() {
                     api::ServerEvent::ChallengePeerRequest(peer_id, res_tx) => {
                         swarm.behaviour_mut().challenge_peer(peer_id);
                         let _ = res_tx.send(api::ChallengePeerResponse);
+                    }
+
+                    api::ServerEvent::AcceptPeerChallengeRequest(peer_id, res_tx) => {
+                        swarm.behaviour_mut().accept_peer_challenge(peer_id);
+                        let _ = res_tx.send(api::AcceptPeerChallengeResponse);
                     }
                 }
             }

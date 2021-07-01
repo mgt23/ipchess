@@ -1,6 +1,10 @@
 import { BoardData, PieceColor } from "../lib";
 import { RouterPage } from "./router";
 
+export type Challenge = {
+  peerId: string;
+};
+
 export type AppState = {
   initializing: boolean;
 
@@ -12,14 +16,17 @@ export type AppState = {
     currentPage: RouterPage;
   };
 
-  match?: {
+  sentChallenge: Challenge | null;
+  receivedChallenges: Array<Challenge>;
+
+  match: {
     opponent: {
       id: string;
     };
     playerPieceColor: PieceColor;
     selection?: { row: number; column: number };
     boardData: BoardData;
-  };
+  } | null;
 };
 
 export const initialAppState = (): AppState => ({
@@ -29,17 +36,14 @@ export const initialAppState = (): AppState => ({
     id: null,
   },
 
+  sentChallenge: null,
+  receivedChallenges: [],
+
   router: {
     currentPage: "splash",
   },
 
-  match: {
-    opponent: {
-      id: "somerandompeerid",
-    },
-    playerPieceColor: "black",
-    boardData: new BoardData(),
-  },
+  match: null,
 });
 
 export type AppMessage =
@@ -50,7 +54,22 @@ export type AppMessage =
       };
     }
   | {
-      type: "challenge-accepted";
+      type: "peer-challenged";
+      payload: {
+        peerId: string;
+      };
+    }
+  | {
+      type: "received-peer-challenge";
+      payload: {
+        peerId: string;
+      };
+    }
+  | {
+      type: "match-ready";
+      payload: {
+        peerId: string;
+      };
     }
   | {
       type: "piece-selected";
@@ -80,10 +99,36 @@ export const update = (state: AppState, message: AppMessage): AppState => {
         router: { ...state.router, currentPage: "home" },
       };
 
-    case "challenge-accepted":
+    case "peer-challenged":
+      return {
+        ...state,
+        sentChallenge: {
+          peerId: message.payload.peerId,
+        },
+      };
+
+    case "received-peer-challenge":
+      return {
+        ...state,
+        receivedChallenges: [
+          ...state.receivedChallenges,
+          {
+            peerId: message.payload.peerId,
+          },
+        ],
+      };
+
+    case "match-ready":
       return {
         ...state,
         router: { ...state.router, currentPage: "match" },
+        match: {
+          opponent: {
+            id: message.payload.peerId,
+          },
+          playerPieceColor: "white",
+          boardData: new BoardData(),
+        },
       };
 
     case "piece-selected":
