@@ -7,7 +7,7 @@ export type HomePageProps = {
   dispatch: React.Dispatch<AppMessage>;
 };
 
-const HomePage = ({ state, dispatch }: HomePageProps) => {
+const HomePage = ({ state }: HomePageProps) => {
   const [challengedPeerId, setChallengedPeerId] = useState("");
 
   return (
@@ -27,66 +27,100 @@ const HomePage = ({ state, dispatch }: HomePageProps) => {
 
       <div className="flex-initial h-6"></div>
 
-      <div className="bg-primary-light text-white flex flex-col md:w-1/2 lg:w-1/4 min-w-min p-4 space-y-4 rounded shadow-2xl">
-        <div className="flex-initial font-bold text-xl">Challenge Peer</div>
-
+      <div className="flex-none bg-primary-light text-white flex flex-col w-1/2 p-4 space-y-4 rounded shadow-2xl overflow-y-auto break-all">
         <div className="flex flex-col space-y-2">
-          <div>Peer ID</div>
-          <div>
-            <input
-              className="rounded text-black focus:outline-none md:w-full lg:w-1/2"
-              type="text"
-              value={challengedPeerId}
-              onChange={(event) => setChallengedPeerId(event.target.value)}
-            ></input>
-          </div>
-        </div>
+          <div className="flex-initial font-bold text-xl">Challenge Peer</div>
 
-        <div>
-          <button
-            className="bg-light text-primary focus:outline-none hover:bg-light-light font-bold rounded p-1"
-            onClick={() => {
-              ipcRenderer.invoke("challenge.send", challengedPeerId);
-              dispatch({
-                type: "peer-challenged",
-                payload: { peerId: challengedPeerId },
-              });
-            }}
-          >
-            Challenge
-          </button>
+          <div className="flex flex-col space-y-4">
+            <div>
+              <div>Peer ID</div>
+              <div>
+                <input
+                  className="rounded text-black focus:outline-none md:w-full lg:w-1/2"
+                  type="text"
+                  value={challengedPeerId}
+                  onChange={(event) => setChallengedPeerId(event.target.value)}
+                ></input>
+              </div>
+            </div>
+
+            <div>
+              <button
+                className="bg-light text-primary focus:outline-none hover:bg-light-light font-bold rounded p-1"
+                onClick={() => {
+                  ipcRenderer.send("challenge.send", challengedPeerId);
+                  setChallengedPeerId("");
+                }}
+              >
+                Challenge
+              </button>
+            </div>
+
+            <div className="flex flex-col space-y-2">
+              <div className="flex-initial font-bold text-xl">
+                Requests Sent
+              </div>
+
+              <div>
+                {Object.keys(state.sentChallenges).length > 0 ? (
+                  Object.entries(state.sentChallenges).map(
+                    ([peerId, _challenge]) => (
+                      <div className="flex flex-col space-y-2">
+                        <div>
+                          <span className="font-bold">{peerId}</span>
+                        </div>
+
+                        <button
+                          className="bg-primary text-white focus:outline-none hover:bg-light-light font-bold rounded p-1 self-start"
+                          onClick={() =>
+                            ipcRenderer.send("challenge.cancel", peerId)
+                          }
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )
+                  )
+                ) : (
+                  <div>No requests sent yet.</div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="bg-primary-light text-white flex flex-col md:w-1/2 lg:w-1/4 min-w-min p-4 space-y-4 rounded shadow-2xl overflow-y-auto">
-        <div className="flex-initial font-bold text-xl">Peer Challenges</div>
-        {state.receivedChallenges.length > 0 ? (
-          state.receivedChallenges.map((challenge) => (
-            <div className="flex flex-col space-y-2">
-              <div>
-                Challenge from peer:{" "}
-                <span className="font-bold">{challenge.peerId}</span>
-              </div>
+      <div className="flex-none bg-primary-light text-white flex flex-col w-1/2 p-4 space-y-4 rounded shadow-2xl overflow-y-auto break-all">
+        <div className="font-bold text-xl">Peer Challenges</div>
+        {Object.keys(state.receivedChallenges).length > 0 ? (
+          Object.entries(state.receivedChallenges).map(
+            ([peerId, _challenge]) => (
+              <div className="flex flex-col space-y-2">
+                <div>
+                  Challenge from peer:{" "}
+                  <span className="font-bold">{peerId}</span>
+                </div>
 
-              <div className="flex flex-row space-x-2">
-                <button
-                  className="bg-light text-primary focus:outline-none hover:bg-light-light font-bold rounded p-1"
-                  onClick={() => {
-                    ipcRenderer.invoke("challenge.accept", challenge.peerId);
-                  }}
-                >
-                  Accept
-                </button>
+                <div className="flex flex-row space-x-2">
+                  <button
+                    className="bg-light text-primary focus:outline-none hover:bg-light-light font-bold rounded p-1"
+                    onClick={() => ipcRenderer.send("challenge.accept", peerId)}
+                  >
+                    Accept
+                  </button>
 
-                <button
-                  className="bg-primary text-white focus:outline-none hover:bg-light-light font-bold rounded p-1"
-                  onClick={() => {}}
-                >
-                  Decline
-                </button>
+                  <button
+                    className="bg-primary text-white focus:outline-none hover:bg-light-light font-bold rounded p-1"
+                    onClick={() =>
+                      ipcRenderer.send("challenge.decline", peerId)
+                    }
+                  >
+                    Decline
+                  </button>
+                </div>
               </div>
-            </div>
-          ))
+            )
+          )
         ) : (
           <div>No challenges yet</div>
         )}

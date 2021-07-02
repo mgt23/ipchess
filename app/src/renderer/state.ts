@@ -16,8 +16,8 @@ export type AppState = {
     currentPage: RouterPage;
   };
 
-  sentChallenge: Challenge | null;
-  receivedChallenges: Array<Challenge>;
+  sentChallenges: { [key: string]: Challenge };
+  receivedChallenges: { [key: string]: Challenge };
 
   match: {
     opponent: {
@@ -36,8 +36,8 @@ export const initialAppState = (): AppState => ({
     id: null,
   },
 
-  sentChallenge: null,
-  receivedChallenges: [],
+  sentChallenges: {},
+  receivedChallenges: {},
 
   router: {
     currentPage: "splash",
@@ -54,16 +54,36 @@ export type AppMessage =
       };
     }
   | {
-      type: "peer-challenged";
+      type: "challenged-peer";
       payload: {
         peerId: string;
       };
     }
   | {
-      type: "received-peer-challenge";
+      type: "challenge-canceled";
       payload: {
         peerId: string;
       };
+    }
+  | {
+      type: "challenge-declined";
+      payload: {
+        peerId: string;
+      };
+    }
+  | {
+      type: "received-challenge";
+      payload: {
+        peerId: string;
+      };
+    }
+  | {
+      type: "peer-canceled-challenge";
+      payload: { peerId: string };
+    }
+  | {
+      type: "peer-declined-challenge";
+      payload: { peerId: string };
     }
   | {
       type: "match-ready";
@@ -87,69 +107,88 @@ export type AppMessage =
     };
 
 export const update = (state: AppState, message: AppMessage): AppState => {
-  switch (message.type) {
-    case "initialization-finished":
-      return {
-        ...state,
-        initializing: false,
-        node: {
-          ...state.node,
-          id: message.payload.nodeId,
-        },
-        router: { ...state.router, currentPage: "home" },
-      };
-
-    case "peer-challenged":
-      return {
-        ...state,
-        sentChallenge: {
-          peerId: message.payload.peerId,
-        },
-      };
-
-    case "received-peer-challenge":
-      return {
-        ...state,
-        receivedChallenges: [
-          ...state.receivedChallenges,
-          {
-            peerId: message.payload.peerId,
+  const nextState = ((): AppState => {
+    switch (message.type) {
+      case "initialization-finished":
+        return {
+          ...state,
+          initializing: false,
+          node: {
+            ...state.node,
+            id: message.payload.nodeId,
           },
-        ],
-      };
+          router: { ...state.router, currentPage: "home" },
+        };
 
-    case "match-ready":
-      return {
-        ...state,
-        router: { ...state.router, currentPage: "match" },
-        match: {
-          opponent: {
-            id: message.payload.peerId,
+      case "challenged-peer":
+        return {
+          ...state,
+          sentChallenges: {
+            ...state.sentChallenges,
+            [message.payload.peerId]: {
+              peerId: message.payload.peerId,
+            },
           },
-          playerPieceColor: "white",
-          boardData: new BoardData(),
-        },
-      };
+        };
 
-    case "piece-selected":
-      return {
-        ...state,
-        match: { ...state.match, selection: message.payload },
-      };
+      case "challenge-canceled":
+      case "peer-declined-challenge": {
+        const nextState = { ...state };
+        delete nextState.sentChallenges[message.payload.peerId];
 
-    case "selected-piece-moved": {
-      console.log(
-        `moved from ${JSON.stringify(
-          state.match.selection
-        )} to ${JSON.stringify(message.payload)}`
-      );
-      return {
-        ...state,
-        match: {
-          ...state.match,
-          selection: null,
-        },
-      };
+        return nextState;
+      }
+
+      case "challenge-declined":
+      case "peer-canceled-challenge": {
+        const nextState = { ...state };
+        delete nextState.receivedChallenges[message.payload.peerId];
+
+        return nextState;
+      }
+
+      case "received-challenge":
+        return {
+          ...state,
+          receivedChallenges: {
+            ...state.receivedChallenges,
+            [message.payload.peerId]: {
+              peerId: message.payload.peerId,
+            },
+          },
+        };
+
+      case "match-ready":
+        return {
+          ...state,
+          router: { ...state.router, currentPage: "match" },
+          match: {
+            opponent: {
+              id: message.payload.peerId,
+            },
+            playerPieceColor: "white",
+            boardData: new BoardData(),
+          },
+        };
+
+      case "piece-selected":
+        return {
+          ...state,
+          match: { ...state.match, selection: message.payload },
+        };
+
+      case "selected-piece-moved": {
+        return {
+          ...state,
+          match: {
+            ...state.match,
+            selection: null,
+          },
+        };
+      }
     }
-  }
+  })();
+
+  console.log(`state updated: ${JSON.stringify(nextState)}`);
+  return nextState;
 };

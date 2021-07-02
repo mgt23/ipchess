@@ -5,6 +5,47 @@ import { render } from "react-dom";
 import router from "./router";
 import { AppMessage, initialAppState, update } from "./state";
 
+type IpcListener = (event: Electron.IpcRendererEvent, ...args: any[]) => void;
+type IpcListenersFunc = (dispatch: React.Dispatch<AppMessage>) => {
+  [key: string]: IpcListener;
+};
+
+const ipcListenersFunc: IpcListenersFunc = (dispatch) => ({
+  "app.initialized": (_event, { nodeId }) => {
+    dispatch({ type: "initialization-finished", payload: { nodeId } });
+  },
+
+  "challenge.received": (_event, { peerId }) => {
+    dispatch({ type: "received-challenge", payload: { peerId } });
+  },
+
+  "challenge.send": (_event, { peerId }) => {
+    dispatch({ type: "challenged-peer", payload: { peerId } });
+  },
+
+  "challenge.cancel": (_event, { peerId }) => {
+    dispatch({ type: "challenge-canceled", payload: { peerId } });
+  },
+
+  "challenge.decline": (_event, { peerId }) => {
+    dispatch({ type: "challenge-declined", payload: { peerId } });
+  },
+
+  "challenge.accept": (_event, { peerId }) => {},
+
+  "challenge.peer-canceled": (_event, { peerId }) => {
+    dispatch({ type: "peer-canceled-challenge", payload: { peerId } });
+  },
+
+  "challenge.peer-declined": (_event, { peerId }) => {
+    dispatch({ type: "peer-declined-challenge", payload: { peerId } });
+  },
+
+  "challenge.peer-accepted": (_event, { peerId }) => {
+    dispatch({ type: "match-ready", payload: { peerId } });
+  },
+});
+
 const App = () => {
   const [state, rawDispatch] = useReducer(update, initialAppState());
 
@@ -14,22 +55,16 @@ const App = () => {
   };
 
   useEffect(() => {
-    ipcRenderer.on("app.initialized", (_event, { nodeId }) => {
-      dispatch({ type: "initialization-finished", payload: { nodeId } });
-    });
+    const ipcListeners = ipcListenersFunc(dispatch);
 
-    ipcRenderer.on("challenge.received", (_event, { peerId }) => {
-      dispatch({ type: "received-peer-challenge", payload: { peerId } });
-    });
-
-    ipcRenderer.on("match.ready", (_event, { peerId }) => {
-      dispatch({ type: "match-ready", payload: { peerId } });
-    });
+    Object.entries(ipcListeners).forEach(([channel, listener]) =>
+      ipcRenderer.on(channel, listener)
+    );
 
     return () => {
-      ipcRenderer.removeAllListeners("app.initialized");
-      ipcRenderer.removeAllListeners("challenge.received");
-      ipcRenderer.removeAllListeners("match.ready");
+      Object.keys(ipcListeners).forEach((channel) =>
+        ipcRenderer.removeAllListeners(channel)
+      );
     };
   });
 

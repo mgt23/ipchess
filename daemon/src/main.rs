@@ -3,7 +3,7 @@ use std::str::FromStr;
 use clap::Clap;
 use libp2p::futures::StreamExt;
 
-use crate::utils::SerializablePeerId;
+use crate::{protocol::IpchessEvent, utils::SerializablePeerId};
 
 mod api;
 mod behaviour;
@@ -64,17 +64,34 @@ async fn main() {
 
                     libp2p::swarm::SwarmEvent::Behaviour(e) => {
                         match e {
-                            behaviour::BehaviourEvent::PeerChallenge { peer_id } => {
+                            behaviour::BehaviourEvent::Ipchess(IpchessEvent::PeerChallenge { peer_id }) => {
                                 api_server.notify_event(api::ServerEventNotification::PeerChallenge {
                                     peer_id: SerializablePeerId(peer_id),
                                 });
                             }
 
-                            behaviour::BehaviourEvent::MatchReady { peer_id } => {
-                                api_server.notify_event(api::ServerEventNotification::MatchReady {
+                            behaviour::BehaviourEvent::Ipchess(IpchessEvent::ChallengeAccepted { peer_id, .. }) => {
+                                api_server.notify_event(api::ServerEventNotification::ChallengeAccepted {
                                     peer_id: SerializablePeerId(peer_id),
                                 });
                             },
+
+                            behaviour::BehaviourEvent::Ipchess(IpchessEvent::ChallengeCanceled { peer_id }) => {
+                                api_server.notify_event(api::ServerEventNotification::ChallengeCanceled {
+                                    peer_id: SerializablePeerId(peer_id),
+                                });
+                            }
+
+                            behaviour::BehaviourEvent::Ipchess(IpchessEvent::ChallengeDeclined { peer_id }) => {
+                                api_server.notify_event(api::ServerEventNotification::ChallengeDeclined {
+                                    peer_id: SerializablePeerId(peer_id),
+                                });
+                            }
+
+                            behaviour::BehaviourEvent::Ipchess(IpchessEvent::Error(err)) => {
+                                log::debug!("Ipchess error {:?}", err);
+                            }
+
                         }
                     }
 
@@ -102,6 +119,16 @@ async fn main() {
                     api::ServerEvent::AcceptPeerChallengeRequest(peer_id, res_tx) => {
                         swarm.behaviour_mut().accept_peer_challenge(peer_id);
                         let _ = res_tx.send(api::AcceptPeerChallengeResponse);
+                    }
+
+                    api::ServerEvent::CancelPeerChallengeRequest(peer_id, res_tx) => {
+                        swarm.behaviour_mut().cancel_challenge(peer_id);
+                        let _ = res_tx.send(api::CancelPeerChallengeResponse);
+                    }
+
+                    api::ServerEvent::DeclinePeerChallengeRequest(peer_id, res_tx) => {
+                        swarm.behaviour_mut().decline_peer_challenge(peer_id);
+                        let _ = res_tx.send(api::DeclinePeerChallengeResponse);
                     }
                 }
             }

@@ -600,12 +600,12 @@ dependencies = [
 name = "daemon"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
  "ctrlc",
  "env_logger",
  "futures",
  "jsonrpsee",
+ "jsonrpsee-types",
  "libp2p",
  "log",
  "prost",

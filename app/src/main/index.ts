@@ -116,10 +116,24 @@ async function main() {
             }
             break;
 
-          case "match_ready":
+          case "challenge_canceled":
             {
               const { peer_id: peerId } = eventData;
-              window.webContents.send("match.ready", { peerId });
+              window.webContents.send("challenge.peer-canceled", { peerId });
+            }
+            break;
+
+          case "challenge_declined":
+            {
+              const { peer_id: peerId } = eventData;
+              window.webContents.send("challenge.peer-declined", { peerId });
+            }
+            break;
+
+          case "challenge_accepted":
+            {
+              const { peer_id: peerId } = eventData;
+              window.webContents.send("challenge.peer-accepted", { peerId });
             }
             break;
         }
@@ -141,22 +155,47 @@ async function main() {
     window.webContents.send("app.initialized", { nodeId });
   }
 
-  ipcMain.handle("challenge.send", async (_event, peerId) => {
+  ipcMain.on("challenge.send", async (event, peerId) => {
     if (appState.jsonrpcClient === null) {
       return;
     }
 
-    log.debug(`challenging peer ${peerId}`);
-    await appState.jsonrpcClient.call("challenge_peer", [peerId]);
+    appState.jsonrpcClient.call("challenge_peer", [peerId]).then(() => {
+      event.reply("challenge.send", { peerId });
+    });
   });
 
-  ipcMain.handle("challenge.accept", async (_event, peerId) => {
+  ipcMain.on("challenge.cancel", async (event, peerId) => {
+    if (appState.jsonrpcClient === null) {
+      return;
+    }
+
+    log.debug(`cancelling peer challenge ${peerId}`);
+    appState.jsonrpcClient.call("cancel_challenge", [peerId]).then(() => {
+      event.reply("challenge.cancel", { peerId });
+    });
+  });
+
+  ipcMain.on("challenge.decline", async (event, peerId) => {
+    if (appState.jsonrpcClient === null) {
+      return;
+    }
+
+    log.debug(`declining peer challenge ${peerId}`);
+    appState.jsonrpcClient.call("decline_peer_challenge", [peerId]).then(() => {
+      event.reply("challenge.decline", { peerId });
+    });
+  });
+
+  ipcMain.on("challenge.accept", async (event, peerId) => {
     if (appState.jsonrpcClient === null) {
       return;
     }
 
     log.debug(`accepting peer challenge ${peerId}`);
-    await appState.jsonrpcClient.call("accept_peer_challenge", [peerId]);
+    appState.jsonrpcClient.call("accept_peer_challenge", [peerId]).then(() => {
+      event.reply("challenge.accept", { peerId });
+    });
   });
 }
 

@@ -14,9 +14,14 @@ message Message {
         bytes preimage = 1;
     }
 
+    message ChallengeCancel {}
+    message ChallengeDecline {}
+
     oneof payload {
         Challenge challenge = 1;
         ChallengeAccept challenge_accept = 2;
         ChallengeReveal challenge_reveal = 3;
+        ChallengeCancel challenge_cancel = 4;
+        ChallengeDecline challenge_decline = 5;
     }
 }

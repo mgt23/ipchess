@@ -7,12 +7,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0"
 clap = "3.0.0-beta.2"
 ctrlc = { version = "3", features = ["termination"] }
 env_logger = "0.8"
 futures = "0.3"
 jsonrpsee = { version = "0.2", features = ["full"] }
+jsonrpsee-types = "0.2.0"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", rev = "e8fed53598696a45a26866408534cfa186b23d4a", features = ["tcp-tokio", "dns-tokio"] }
 log = "0.4"
 prost = "0.7"

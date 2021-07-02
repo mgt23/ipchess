@@ -6,7 +6,10 @@ use std::{
 };
 
 use futures::FutureExt;
-use jsonrpsee::ws_server::{RpcModule, WsServerBuilder};
+use jsonrpsee::{
+    http_client::v2::params::OwnedRpcParams,
+    ws_server::{RpcModule, WsServerBuilder},
+};
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
 
@@ -32,18 +35,31 @@ impl Serialize for ChallengePeerResponse {
 #[derive(Serialize)]
 pub struct AcceptPeerChallengeResponse;
 
+#[derive(Serialize)]
+pub struct CancelPeerChallengeResponse;
+
+#[derive(Serialize)]
+pub struct DeclinePeerChallengeResponse;
+
 pub enum ServerEvent {
     NodeIdRequest(oneshot::Sender<NodeIdResponse>),
     IsConnectedRequest(oneshot::Sender<IsConnectedResponse>),
     ChallengePeerRequest(libp2p::PeerId, oneshot::Sender<ChallengePeerResponse>),
     AcceptPeerChallengeRequest(libp2p::PeerId, oneshot::Sender<AcceptPeerChallengeResponse>),
+    CancelPeerChallengeRequest(libp2p::PeerId, oneshot::Sender<CancelPeerChallengeResponse>),
+    DeclinePeerChallengeRequest(
+        libp2p::PeerId,
+        oneshot::Sender<DeclinePeerChallengeResponse>,
+    ),
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case", tag = "event_type", content = "data")]
 pub enum ServerEventNotification {
     PeerChallenge { peer_id: SerializablePeerId },
-    MatchReady { peer_id: SerializablePeerId },
+    ChallengeCanceled { peer_id: SerializablePeerId },
+    ChallengeDeclined { peer_id: SerializablePeerId },
+    ChallengeAccepted { peer_id: SerializablePeerId },
 }
 
 pub struct Server {
@@ -54,7 +70,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn new(port: u16) -> anyhow::Result<Self> {
+    pub async fn new(port: u16) -> Result<Self, Box<dyn std::error::Error>> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         let mut server = WsServerBuilder::default()
@@ -78,25 +94,68 @@ impl Server {
         })?;
 
         module.register_async_method("challenge_peer", move |params, event_tx| {
-            let (res_tx, res_rx) = oneshot::channel();
+            let params = OwnedRpcParams::from(params);
 
-            let params_str: String = params.one().unwrap();
-            let peer_id = libp2p::PeerId::from_str(params_str.as_str()).unwrap();
+            async move {
+                let (res_tx, res_rx) = oneshot::channel();
 
-            let _ = event_tx.send(ServerEvent::ChallengePeerRequest(peer_id, res_tx));
+                let params_str: String = params.borrowed().one()?;
+                let peer_id = libp2p::PeerId::from_str(params_str.as_str())
+                    .map_err(|_| jsonrpsee_types::error::CallError::InvalidParams)?;
 
-            async move { Ok(res_rx.await.unwrap()) }.boxed()
+                let _ = event_tx.send(ServerEvent::ChallengePeerRequest(peer_id, res_tx));
+                Ok(res_rx.await.unwrap())
+            }
+            .boxed()
         })?;
 
         module.register_async_method("accept_peer_challenge", move |params, event_tx| {
-            let (res_tx, res_rx) = oneshot::channel();
+            let params = OwnedRpcParams::from(params);
 
-            let params_str: String = params.one().unwrap();
-            let peer_id = libp2p::PeerId::from_str(params_str.as_str()).unwrap();
+            async move {
+                let (res_tx, res_rx) = oneshot::channel();
 
-            let _ = event_tx.send(ServerEvent::AcceptPeerChallengeRequest(peer_id, res_tx));
+                let params_str: String = params.borrowed().one()?;
+                let peer_id = libp2p::PeerId::from_str(params_str.as_str())
+                    .map_err(|_| jsonrpsee_types::error::CallError::InvalidParams)?;
 
-            async move { Ok(res_rx.await.unwrap()) }.boxed()
+                let _ = event_tx.send(ServerEvent::AcceptPeerChallengeRequest(peer_id, res_tx));
+
+                Ok(res_rx.await.unwrap())
+            }
+            .boxed()
+        })?;
+
+        module.register_async_method("cancel_challenge", move |params, event_tx| {
+            let params = OwnedRpcParams::from(params);
+
+            async move {
+                let (res_tx, res_rx) = oneshot::channel();
+
+                let params_str: String = params.borrowed().one()?;
+                let peer_id = libp2p::PeerId::from_str(params_str.as_str())
+                    .map_err(|_| jsonrpsee_types::error::CallError::InvalidParams)?;
+
+                let _ = event_tx.send(ServerEvent::CancelPeerChallengeRequest(peer_id, res_tx));
+                Ok(res_rx.await.unwrap())
+            }
+            .boxed()
+        })?;
+
+        module.register_async_method("decline_peer_challenge", move |params, event_tx| {
+            let params = OwnedRpcParams::from(params);
+
+            async move {
+                let (res_tx, res_rx) = oneshot::channel();
+
+                let params_str: String = params.borrowed().one()?;
+                let peer_id = libp2p::PeerId::from_str(params_str.as_str())
+                    .map_err(|_| jsonrpsee_types::error::CallError::InvalidParams)?;
+
+                let _ = event_tx.send(ServerEvent::DeclinePeerChallengeRequest(peer_id, res_tx));
+                Ok(res_rx.await.unwrap())
+            }
+            .boxed()
         })?;
 
         let events_subscribers = Arc::new(RwLock::new(vec![]));

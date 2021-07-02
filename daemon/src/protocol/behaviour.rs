@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     task::Poll,
+    time::{Duration, Instant},
 };
 
 use libp2p::{
@@ -14,25 +15,57 @@ use thiserror::Error;
 
 use super::{IpchessHandler, IpchessHandlerEventIn, IpchessHandlerEventOut};
 
-struct PendingChallenge {
-    commitment: Vec<u8>,
-    random: Option<Vec<u8>>,
+/// Challenge sent to a peer.
+struct OutboundChallenge {
+    /// Preimage of the commitment sent to the challenged peer.
+    preimage: Vec<u8>,
+    /// Instant the challenge was sent to the peer.
+    timestamp: Instant,
 }
 
-struct SentChallenge {
-    preimage: Vec<u8>,
+/// States a challenge received from a peer is allowed to be in.
+enum InboundChallenge {
+    /// Challenge was received by this peer and is ready to be accepted or declined.
+    Received {
+        /// Commitment for the random bytes chosen by the peer.
+        commitment: Vec<u8>,
+    },
+
+    /// Challenge was accepted by this peer but it has not received the pre image for the challenger's commitment yet.
+    PendingPreimage {
+        /// Commitment for the random bytes chosen by the peer.
+        commitment: Vec<u8>,
+        /// Random bytes chosen by the challenged peer.
+        random: Vec<u8>,
+        /// Instant the random bytes were sent to the challenger.
+        timestamp: Instant,
+    },
 }
 
-#[derive(Debug, Clone)]
-pub struct MatchData {
+/// A accepted challenge containing all information about the match's negotiation.
+#[derive(Debug)]
+pub struct AcceptedChallenge {
+    /// Random bytes chosen by the challenger peer.
     preimage: Vec<u8>,
+    /// Random bytes chosen by the challenged peer.
     random: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub enum ChallengeDirection {
+    Inbound,
+    Outbound,
 }
 
 #[derive(Error, Debug)]
 pub enum IpchessError {
     #[error("Preimage revealed by peer does not match previously sent commitment")]
-    CommitmentPreimageMismatch,
+    ChallengeCommitmentPreimageMismatch,
+    #[error("Challenge timed out")]
+    ChallengeTimeout {
+        peer_id: PeerId,
+        direction: ChallengeDirection,
+    },
 }
 
 #[derive(Debug)]
@@ -41,20 +74,46 @@ pub enum IpchessEvent {
         peer_id: PeerId,
     },
 
-    MatchReady {
+    ChallengeAccepted {
         peer_id: PeerId,
-        match_data: MatchData,
+        challenge: AcceptedChallenge,
+    },
+
+    ChallengeDeclined {
+        peer_id: PeerId,
+    },
+
+    ChallengeCanceled {
+        peer_id: PeerId,
     },
 
     Error(IpchessError),
 }
 
-pub struct Ipchess {
-    handler_in: VecDeque<(PeerId, IpchessHandlerEventIn)>,
-    handler_out: VecDeque<(PeerId, IpchessHandlerEventOut)>,
+/// Behaviour configuration.
+pub struct IpchessConfig {
+    /// Amount of time a peer has until an outbound challenge is considered timed out.
+    challenge_accept_timeout: Duration,
+    /// Amount of time a peer to sent back the challenge's commitment preimage.
+    challenge_preimage_timeout: Duration,
+}
 
-    pending_challenges: HashMap<PeerId, PendingChallenge>,
-    sent_challenges: HashMap<PeerId, SentChallenge>,
+impl Default for IpchessConfig {
+    fn default() -> Self {
+        Self {
+            challenge_accept_timeout: Duration::from_secs(5 * 60),
+            challenge_preimage_timeout: Duration::from_secs(15),
+        }
+    }
+}
+
+pub struct Ipchess {
+    config: IpchessConfig,
+
+    events: VecDeque<NetworkBehaviourAction<IpchessHandlerEventIn, IpchessEvent>>,
+
+    outbound_challenges: HashMap<PeerId, OutboundChallenge>,
+    inbound_challenges: HashMap<PeerId, InboundChallenge>,
 
     peer_addresses: HashMap<PeerId, HashSet<Multiaddr>>,
 }
@@ -62,10 +121,13 @@ pub struct Ipchess {
 impl Ipchess {
     pub fn new() -> Self {
         Ipchess {
-            handler_in: VecDeque::new(),
-            handler_out: VecDeque::new(),
-            pending_challenges: HashMap::new(),
-            sent_challenges: HashMap::new(),
+            config: IpchessConfig::default(),
+
+            events: VecDeque::new(),
+
+            outbound_challenges: HashMap::new(),
+            inbound_challenges: HashMap::new(),
+
             peer_addresses: HashMap::new(),
         }
     }
@@ -75,8 +137,8 @@ impl Ipchess {
     }
 
     pub fn challenge_peer(&mut self, peer_id: PeerId) {
-        if self.sent_challenges.contains_key(&peer_id) {
-            log::debug!("Duplicate challenge request to peer {}, ignoring", peer_id);
+        if self.outbound_challenges.contains_key(&peer_id) {
+            log::debug!("Duplicate outbound challenge to peer {}, ignoring", peer_id);
             return;
         }
 
@@ -87,26 +149,101 @@ impl Ipchess {
             .as_ref()
             .to_vec();
 
-        self.sent_challenges
-            .insert(peer_id, SentChallenge { preimage });
+        self.outbound_challenges.insert(
+            peer_id,
+            OutboundChallenge {
+                preimage,
+                // timestamp is set to now but this could be changed to be set to the
+                // instant at which the handler sent the challenge through the network.
+                timestamp: Instant::now(),
+            },
+        );
 
-        self.handler_in
-            .push_back((peer_id, IpchessHandlerEventIn::Challenge { commitment }));
+        self.events
+            .push_back(NetworkBehaviourAction::NotifyHandler {
+                peer_id: peer_id,
+                handler: NotifyHandler::Any,
+                event: IpchessHandlerEventIn::Challenge { commitment },
+            });
     }
 
     pub fn accept_peer_challenge(&mut self, peer_id: PeerId) {
-        let challenge_data = self
-            .pending_challenges
-            .get_mut(&peer_id)
-            .expect("no pending challenge from peer");
+        let challenge_data = match self.inbound_challenges.remove(&peer_id) {
+            Some(challenge_data) => challenge_data,
+            None => {
+                log::warn!(
+                    "Ignoring accept_peer_challenge, there are no inbound challenges from peer {}",
+                    peer_id
+                );
+                return;
+            }
+        };
 
-        let mut thread_rng = rand::thread_rng();
-        let random = thread_rng.gen::<[u8; 32]>().to_vec();
+        let updated_challenge_data = match challenge_data {
+            InboundChallenge::Received { commitment } => {
+                let mut thread_rng = rand::thread_rng();
+                let random = thread_rng.gen::<[u8; 32]>().to_vec();
 
-        challenge_data.random = Some(random.clone());
+                self.events
+                    .push_back(NetworkBehaviourAction::NotifyHandler {
+                        peer_id,
+                        handler: NotifyHandler::Any,
+                        event: IpchessHandlerEventIn::ChallengeAccept {
+                            random: random.clone(),
+                        },
+                    });
 
-        self.handler_in
-            .push_back((peer_id, IpchessHandlerEventIn::ChallengeAccept { random }))
+                InboundChallenge::PendingPreimage {
+                    commitment,
+                    random,
+                    timestamp: Instant::now(),
+                }
+            }
+
+            InboundChallenge::PendingPreimage { .. } => {
+                log::warn!(
+                    "Ignoring accept_peer_challenge for peer {}, challenge was already accepted and is pending the receipt of the preimage",
+                    peer_id
+                );
+
+                challenge_data
+            }
+        };
+
+        self.inbound_challenges
+            .insert(peer_id, updated_challenge_data);
+    }
+
+    pub fn cancel_challenge(&mut self, peer_id: PeerId) {
+        if self.outbound_challenges.remove(&peer_id).is_some() {
+            self.events
+                .push_back(NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler: NotifyHandler::Any,
+                    event: IpchessHandlerEventIn::ChallengeCanceled,
+                });
+        } else {
+            log::debug!(
+                "Ignoring cancel_challenge, no challenge for peer {}",
+                peer_id
+            );
+        }
+    }
+
+    pub fn decline_peer_challenge(&mut self, peer_id: PeerId) {
+        if self.inbound_challenges.remove(&peer_id).is_some() {
+            self.events
+                .push_back(NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler: NotifyHandler::Any,
+                    event: IpchessHandlerEventIn::ChallengeDeclined,
+                });
+        } else {
+            log::debug!(
+                "Ignoring decline_peer_challenge, no challenge from peer {}",
+                peer_id
+            );
+        }
     }
 }
 
@@ -134,7 +271,98 @@ impl NetworkBehaviour for Ipchess {
         _conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        self.handler_out.push_back((peer_id, event));
+        match event {
+            IpchessHandlerEventOut::ChallengeReceived { commitment } => {
+                self.inbound_challenges
+                    .insert(peer_id, InboundChallenge::Received { commitment });
+
+                self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                    IpchessEvent::PeerChallenge { peer_id },
+                ));
+            }
+
+            IpchessHandlerEventOut::ChallengeRevealReceived { preimage } => {
+                if let Some(inbound_challenge) = self.inbound_challenges.remove(&peer_id) {
+                    match inbound_challenge {
+                        InboundChallenge::PendingPreimage {
+                            commitment, random, ..
+                        } => {
+                            let preimage_hash = libp2p::multihash::Sha2_256::digest(&preimage);
+
+                            if preimage_hash.as_ref().to_vec() == commitment {
+                                self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                                    IpchessEvent::ChallengeAccepted {
+                                        peer_id,
+                                        challenge: AcceptedChallenge { preimage, random },
+                                    },
+                                ));
+                            } else {
+                                self.events
+                                    .push_back(NetworkBehaviourAction::NotifyHandler {
+                                        peer_id,
+                                        handler: NotifyHandler::Any,
+                                        event: IpchessHandlerEventIn::ChallengePoisoned,
+                                    });
+
+                                self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                                    IpchessEvent::Error(
+                                        IpchessError::ChallengeCommitmentPreimageMismatch,
+                                    ),
+                                ));
+                            }
+                        }
+
+                        InboundChallenge::Received { .. } => {
+                            self.events
+                                .push_back(NetworkBehaviourAction::NotifyHandler {
+                                    peer_id,
+                                    handler: NotifyHandler::Any,
+                                    event: IpchessHandlerEventIn::ChallengePoisoned,
+                                });
+                        }
+                    };
+                }
+            }
+
+            IpchessHandlerEventOut::ChallengeAccepted { random } => {
+                if let Some(sent_challenge) = self.outbound_challenges.remove(&peer_id) {
+                    self.events
+                        .push_back(NetworkBehaviourAction::NotifyHandler {
+                            peer_id,
+                            handler: NotifyHandler::Any,
+                            event: IpchessHandlerEventIn::ChallengeReveal {
+                                preimage: sent_challenge.preimage.clone(),
+                            },
+                        });
+
+                    self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                        IpchessEvent::ChallengeAccepted {
+                            peer_id,
+                            challenge: AcceptedChallenge {
+                                preimage: sent_challenge.preimage,
+                                random,
+                            },
+                        },
+                    ));
+                }
+            }
+
+            IpchessHandlerEventOut::ChallengeCanceled => {
+                if self.inbound_challenges.remove(&peer_id).is_some() {
+                    self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                        IpchessEvent::ChallengeCanceled { peer_id },
+                    ));
+                }
+            }
+
+            IpchessHandlerEventOut::ChallengeDeclined => {
+                if self.outbound_challenges.remove(&peer_id).is_some() {
+                    self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                        IpchessEvent::ChallengeDeclined { peer_id },
+                    ));
+                }
+            }
+        }
     }
 
     fn poll(
@@ -147,87 +375,62 @@ impl NetworkBehaviour for Ipchess {
             Self::OutEvent,
         >,
     > {
-        // drain handler out events list
-        if let Some((peer_id, event)) = self.handler_out.pop_front() {
-            match event {
-                IpchessHandlerEventOut::ChallengeReceived { commitment } => {
-                    self.pending_challenges.insert(
-                        peer_id,
-                        PendingChallenge {
-                            commitment,
-                            random: None,
-                        },
-                    );
-
-                    return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
-                        IpchessEvent::PeerChallenge { peer_id },
-                    ));
-                }
-
-                IpchessHandlerEventOut::ChallengeRevealReceived { preimage } => {
-                    if let Some(pending_challenge) = self.pending_challenges.remove(&peer_id) {
-                        let random = match pending_challenge.random {
-                            Some(random) => random,
-
-                            None => {
-                                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                                    peer_id,
-                                    handler: NotifyHandler::Any,
-                                    event: IpchessHandlerEventIn::ChallengePoisoned,
-                                })
-                            }
-                        };
-
-                        let preimage_hash = libp2p::multihash::Sha2_256::digest(&preimage);
-
-                        if preimage_hash.as_ref().to_vec() == pending_challenge.commitment {
-                            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
-                                IpchessEvent::MatchReady {
-                                    peer_id,
-                                    match_data: MatchData { preimage, random },
-                                },
-                            ));
-                        } else {
-                            self.handler_in
-                                .push_back((peer_id, IpchessHandlerEventIn::ChallengePoisoned));
-
-                            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
-                                IpchessEvent::Error(IpchessError::CommitmentPreimageMismatch),
-                            ));
-                        }
-                    }
-                }
-
-                IpchessHandlerEventOut::ChallengeAccepted { random } => {
-                    if let Some(sent_challenge) = self.sent_challenges.remove(&peer_id) {
-                        self.handler_in.push_back((
-                            peer_id,
-                            IpchessHandlerEventIn::ChallengeReveal {
-                                preimage: sent_challenge.preimage.clone(),
-                            },
-                        ));
-
-                        return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
-                            IpchessEvent::MatchReady {
-                                peer_id,
-                                match_data: MatchData {
-                                    preimage: sent_challenge.preimage,
-                                    random,
-                                },
-                            },
-                        ));
-                    }
-                }
-            }
+        // drain pending events
+        if let Some(event) = self.events.pop_front() {
+            return Poll::Ready(event);
         }
 
-        // drain handler in events list
-        if let Some((peer_id, event)) = self.handler_in.pop_front() {
-            return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::Any,
-                event,
-            });
+        // clear timed out outbound challenge
+        let now = Instant::now();
+
+        let timedout_outbound_challenge_keys: Vec<_> = self
+            .outbound_challenges
+            .iter()
+            .filter_map(|(peer_id, challenge)| {
+                if now.duration_since(challenge.timestamp) > self.config.challenge_accept_timeout {
+                    Some(*peer_id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for peer_id in timedout_outbound_challenge_keys {
+            self.outbound_challenges.remove(&peer_id);
+            self.events
+                .push_back(NetworkBehaviourAction::GenerateEvent(IpchessEvent::Error(
+                    IpchessError::ChallengeTimeout {
+                        peer_id,
+                        direction: ChallengeDirection::Outbound,
+                    },
+                )));
+        }
+
+        // clear timed out inbound challenges
+        let timedout_inbound_challenge_keys: Vec<_> = self
+            .inbound_challenges
+            .iter()
+            .filter_map(|(peer_id, challenge)| match challenge {
+                InboundChallenge::Received { .. } => None,
+                InboundChallenge::PendingPreimage { timestamp, .. } => {
+                    if now.duration_since(*timestamp) > self.config.challenge_preimage_timeout {
+                        Some(*peer_id)
+                    } else {
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        for peer_id in timedout_inbound_challenge_keys {
+            self.inbound_challenges.remove(&peer_id);
+            self.events
+                .push_back(NetworkBehaviourAction::GenerateEvent(IpchessEvent::Error(
+                    IpchessError::ChallengeTimeout {
+                        peer_id,
+                        direction: ChallengeDirection::Inbound,
+                    },
+                )));
         }
 
         Poll::Pending

@@ -112,8 +112,7 @@ impl NetworkBehaviour for PeerStore {
 
 #[derive(Debug)]
 pub enum BehaviourEvent {
-    PeerChallenge { peer_id: PeerId },
-    MatchReady { peer_id: PeerId },
+    Ipchess(IpchessEvent),
 }
 
 #[derive(NetworkBehaviour)]
@@ -128,7 +127,7 @@ pub struct Behaviour {
     #[behaviour(ignore)]
     challenged_peer_id: Option<PeerId>,
     #[behaviour(ignore)]
-    out_events: VecDeque<
+    events: VecDeque<
         NetworkBehaviourAction<
             <<<Self as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent,
             BehaviourEvent,
@@ -175,7 +174,7 @@ impl Behaviour {
             peer_store: PeerStore::new(),
 
             challenged_peer_id: None,
-            out_events: VecDeque::new(),
+            events: VecDeque::new(),
         }
     }
 
@@ -203,8 +202,18 @@ impl Behaviour {
     }
 
     pub fn accept_peer_challenge(&mut self, peer_id: PeerId) {
-        log::debug!("Accepting peer challenge {}", peer_id);
+        log::debug!("Accepting challenge from peer {}", peer_id);
         self.ipchess.accept_peer_challenge(peer_id);
+    }
+
+    pub fn cancel_challenge(&mut self, peer_id: PeerId) {
+        log::debug!("Cancelling challenge to peer {}", peer_id);
+        self.ipchess.cancel_challenge(peer_id);
+    }
+
+    pub fn decline_peer_challenge(&mut self, peer_id: PeerId) {
+        log::debug!("Declining challenge from peer {}", peer_id);
+        self.ipchess.decline_peer_challenge(peer_id);
     }
 
     pub fn is_connected(&self) -> bool {
@@ -222,9 +231,9 @@ impl Behaviour {
         _cx: &mut std::task::Context<'_>,
         _params: &mut impl libp2p::swarm::PollParameters
     ) -> Poll<NetworkBehaviourAction<<<<Self as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, <Self as NetworkBehaviour>::OutEvent>>{
-        // drain out events
-        if let Some(out_event) = self.out_events.pop_front() {
-            return Poll::Ready(out_event);
+        // drain events
+        if let Some(event) = self.events.pop_front() {
+            return Poll::Ready(event);
         }
 
         Poll::Pending
@@ -256,6 +265,8 @@ impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
                 info,
             );
 
+            self.challenged_peer_id = None;
+
             for addr in info.listen_addrs {
                 self.ipchess.add_address(peer_id, addr);
             }
@@ -271,31 +282,9 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
 
 impl NetworkBehaviourEventProcess<IpchessEvent> for Behaviour {
     fn inject_event(&mut self, event: IpchessEvent) {
-        match event {
-            IpchessEvent::PeerChallenge { peer_id } => {
-                self.out_events
-                    .push_back(NetworkBehaviourAction::GenerateEvent(
-                        BehaviourEvent::PeerChallenge { peer_id },
-                    ));
-            }
-
-            IpchessEvent::MatchReady {
-                peer_id,
-                match_data,
-            } => {
-                log::debug!("Match ready {} {:?}", peer_id, match_data);
-                self.challenged_peer_id = None;
-
-                self.out_events
-                    .push_back(NetworkBehaviourAction::GenerateEvent(
-                        BehaviourEvent::MatchReady { peer_id },
-                    ));
-            }
-
-            IpchessEvent::Error(err) => {
-                log::debug!("Error {:?}", err);
-            }
-        }
+        self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+            BehaviourEvent::Ipchess(event),
+        ));
     }
 }
 

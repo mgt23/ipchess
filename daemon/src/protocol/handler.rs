@@ -19,6 +19,8 @@ pub enum IpchessHandlerEventIn {
     Challenge { commitment: Vec<u8> },
     ChallengeAccept { random: Vec<u8> },
     ChallengeReveal { preimage: Vec<u8> },
+    ChallengeCanceled,
+    ChallengeDeclined,
     ChallengePoisoned,
 }
 
@@ -27,6 +29,8 @@ pub enum IpchessHandlerEventOut {
     ChallengeReceived { commitment: Vec<u8> },
     ChallengeRevealReceived { preimage: Vec<u8> },
     ChallengeAccepted { random: Vec<u8> },
+    ChallengeCanceled,
+    ChallengeDeclined,
 }
 
 #[derive(Error, Debug)]
@@ -175,6 +179,28 @@ impl ProtocolsHandler for IpchessHandler {
                     }));
             }
 
+            IpchessHandlerEventIn::ChallengeCanceled => {
+                log::debug!("Cancelling challenge");
+
+                self.substream_states
+                    .push(SubstreamState::PendingOpen(ipchessproto::Message {
+                        payload: Some(ipchessproto::message::Payload::ChallengeCancel(
+                            ipchessproto::message::ChallengeCancel {},
+                        )),
+                    }));
+            }
+
+            IpchessHandlerEventIn::ChallengeDeclined => {
+                log::debug!("Declining challenge");
+
+                self.substream_states
+                    .push(SubstreamState::PendingOpen(ipchessproto::Message {
+                        payload: Some(ipchessproto::message::Payload::ChallengeDecline(
+                            ipchessproto::message::ChallengeDecline {},
+                        )),
+                    }));
+            }
+
             IpchessHandlerEventIn::ChallengePoisoned => {
                 self.handler_error_received = true;
             }
@@ -241,7 +267,7 @@ impl ProtocolsHandler for IpchessHandler {
                             ) => {
                                 return Poll::Ready(ProtocolsHandlerEvent::Custom(
                                     IpchessHandlerEventOut::ChallengeReceived { commitment },
-                                ))
+                                ));
                             }
 
                             ipchessproto::message::Payload::ChallengeAccept(
@@ -249,7 +275,7 @@ impl ProtocolsHandler for IpchessHandler {
                             ) => {
                                 return Poll::Ready(ProtocolsHandlerEvent::Custom(
                                     IpchessHandlerEventOut::ChallengeAccepted { random },
-                                ))
+                                ));
                             }
 
                             ipchessproto::message::Payload::ChallengeReveal(
@@ -257,6 +283,22 @@ impl ProtocolsHandler for IpchessHandler {
                             ) => {
                                 return Poll::Ready(ProtocolsHandlerEvent::Custom(
                                     IpchessHandlerEventOut::ChallengeRevealReceived { preimage },
+                                ));
+                            }
+
+                            ipchessproto::message::Payload::ChallengeCancel(
+                                ipchessproto::message::ChallengeCancel {},
+                            ) => {
+                                return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                    IpchessHandlerEventOut::ChallengeCanceled,
+                                ));
+                            }
+
+                            ipchessproto::message::Payload::ChallengeDecline(
+                                ipchessproto::message::ChallengeDecline {},
+                            ) => {
+                                return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                    IpchessHandlerEventOut::ChallengeDeclined,
                                 ));
                             }
                         },
@@ -313,16 +355,23 @@ async fn read_message(
 
     match msg.payload {
         Some(ipchessproto::message::Payload::Challenge(_)) => {
-            log::debug!("Read Challenge message")
+            log::debug!("Read Challenge message");
         }
         Some(ipchessproto::message::Payload::ChallengeAccept(_)) => {
-            log::debug!("Read ChallengeAccept message")
+            log::debug!("Read ChallengeAccept message");
         }
         Some(ipchessproto::message::Payload::ChallengeReveal(_)) => {
-            log::debug!("Read ChallengeReveal message")
+            log::debug!("Read ChallengeReveal message");
         }
-
-        None => log::debug!("Read empty message"),
+        Some(ipchessproto::message::Payload::ChallengeCancel(_)) => {
+            log::debug!("Read ChallengeCancel message");
+        }
+        Some(ipchessproto::message::Payload::ChallengeDecline(_)) => {
+            log::debug!("Read ChallengeDecline message");
+        }
+        None => {
+            log::debug!("Read empty message");
+        }
     }
 
     Ok(msg)
@@ -334,16 +383,23 @@ async fn send_message(
 ) -> Result<(), IpchessHandlerError> {
     match msg.payload {
         Some(ipchessproto::message::Payload::Challenge(_)) => {
-            log::debug!("Sending Challenge message")
+            log::debug!("Sending Challenge message");
         }
         Some(ipchessproto::message::Payload::ChallengeAccept(_)) => {
-            log::debug!("Sending ChallengeAccept message")
+            log::debug!("Sending ChallengeAccept message");
         }
         Some(ipchessproto::message::Payload::ChallengeReveal(_)) => {
-            log::debug!("Sending ChallengeReveal message")
+            log::debug!("Sending ChallengeReveal message");
         }
-
-        None => log::warn!("Sending empty message"),
+        Some(ipchessproto::message::Payload::ChallengeCancel(_)) => {
+            log::debug!("Sending ChallengeCancel message");
+        }
+        Some(ipchessproto::message::Payload::ChallengeDecline(_)) => {
+            log::debug!("Sending ChallengeDecline message");
+        }
+        None => {
+            log::warn!("Sending empty message");
+        }
     }
 
     let msg_len = msg.encoded_len();
