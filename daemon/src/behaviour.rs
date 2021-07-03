@@ -266,11 +266,6 @@ impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
             );
 
             self.challenged_peer_id = None;
-
-            for addr in info.listen_addrs {
-                self.ipchess.add_address(peer_id, addr);
-            }
-
             self.ipchess.challenge_peer(peer_id);
         }
     }
