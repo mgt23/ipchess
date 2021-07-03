@@ -1,19 +1,20 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::str::FromStr;
 use std::task::Poll;
 
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent, IdentifyInfo};
-use libp2p::kad::{self, KademliaConfig};
-use libp2p::kad::{store::MemoryStore, Kademlia, KademliaEvent};
-use libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+use libp2p::core::either::EitherOutput;
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::kad::handler::KademliaHandlerProto;
+use libp2p::kad::{self, KademliaConfig, KademliaEvent};
+use libp2p::kad::{store::MemoryStore, Kademlia};
 use libp2p::swarm::{
-    IntoProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NetworkBehaviourEventProcess,
-    ProtocolsHandler,
+    IntoProtocolsHandler, IntoProtocolsHandlerSelect, NetworkBehaviour, NetworkBehaviourAction,
+    NetworkBehaviourEventProcess, ProtocolsHandler, ProtocolsHandlerSelect,
 };
 
-use libp2p::{NetworkBehaviour, PeerId};
+use libp2p::{Multiaddr, PeerId};
 
-use crate::protocol::{Ipchess, IpchessEvent};
+use crate::protocol::{Ipchess, IpchessEvent, IpchessHandler};
 
 const BOOTSTRAP_PEER_ADDRS: [&str; 5] = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
@@ -23,111 +24,41 @@ const BOOTSTRAP_PEER_ADDRS: [&str; 5] = [
     "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
 ];
 
-pub enum PeerStoreEvent {}
-
-pub struct PeerStore {
-    connected_peers: HashMap<PeerId, Option<IdentifyInfo>>,
-}
-
-impl PeerStore {
-    fn new() -> Self {
-        Self {
-            connected_peers: HashMap::new(),
-        }
-    }
-
-    fn add_identify_info(&mut self, peer_id: PeerId, info: IdentifyInfo) {
-        self.connected_peers
-            .entry(peer_id)
-            .and_modify(|e| *e = Some(info));
-    }
-
-    fn peers_for_protocol<'a>(&'a self, protocol: &'a str) -> impl Iterator<Item = PeerId> + 'a {
-        self.connected_peers
-            .iter()
-            .filter_map(move |(peer_id, info)| match info {
-                Some(info) => {
-                    let found = info.protocols.iter().any(|p| p == protocol);
-
-                    if found {
-                        Some(*peer_id)
-                    } else {
-                        None
-                    }
-                }
-
-                None => None,
-            })
-    }
-}
-
-impl NetworkBehaviour for PeerStore {
-    type ProtocolsHandler = DummyProtocolsHandler;
-    type OutEvent = PeerStoreEvent;
-
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyProtocolsHandler::default()
-    }
-
-    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<libp2p::Multiaddr> {
-        vec![]
-    }
-
-    fn inject_connected(&mut self, _peer_id: &PeerId) {}
-
-    fn inject_connection_established(
-        &mut self,
-        peer_id: &PeerId,
-        _conn_id: &libp2p::core::connection::ConnectionId,
-        _endpoint: &libp2p::core::ConnectedPoint,
-    ) {
-        self.connected_peers.entry(*peer_id).or_default();
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        self.connected_peers.remove(&peer_id);
-    }
-
-    fn inject_event(
-        &mut self,
-        _peer_id: PeerId,
-        _connection: libp2p::core::connection::ConnectionId,
-        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
-    ) {
-    }
-
-    fn poll(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p::swarm::PollParameters,
-    ) -> Poll<
-        NetworkBehaviourAction<
-            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
-            Self::OutEvent,
-        >,
-    > {
-        Poll::Pending
-    }
-}
-
 #[derive(Debug)]
 pub enum BehaviourEvent {
     Ipchess(IpchessEvent),
 }
 
-#[derive(NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourEvent")]
-#[behaviour(poll_method = "poll")]
+type IdentifyHandler = <Identify as NetworkBehaviour>::ProtocolsHandler;
+type KademliaHandler = KademliaHandlerProto<libp2p::kad::QueryId>;
+
+pub type BehaviourHandler = IntoProtocolsHandlerSelect<
+    KademliaHandler,
+    ProtocolsHandlerSelect<IdentifyHandler, IpchessHandler>,
+>;
+
+struct PeerInfo {
+    addrs: VecDeque<Multiaddr>,
+    protocols: HashSet<String>,
+}
+
+impl Default for PeerInfo {
+    fn default() -> Self {
+        Self {
+            addrs: VecDeque::new(),
+            protocols: HashSet::new(),
+        }
+    }
+}
+
 pub struct Behaviour {
     identify: Identify,
     kad: Kademlia<MemoryStore>,
     ipchess: Ipchess,
-    peer_store: PeerStore,
 
-    #[behaviour(ignore)]
-    challenged_peer_id: Option<PeerId>,
-    #[behaviour(ignore)]
-    events: VecDeque<
+    peer_infos: HashMap<PeerId, PeerInfo>,
+
+    actions_queue: VecDeque<
         NetworkBehaviourAction<
             <<<Self as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent,
             BehaviourEvent,
@@ -171,10 +102,9 @@ impl Behaviour {
             identify,
             kad,
             ipchess,
-            peer_store: PeerStore::new(),
 
-            challenged_peer_id: None,
-            events: VecDeque::new(),
+            peer_infos: HashMap::new(),
+            actions_queue: VecDeque::new(),
         }
     }
 
@@ -184,21 +114,7 @@ impl Behaviour {
 
     pub fn challenge_peer(&mut self, peer_id: PeerId) {
         log::debug!("Challenging peer {}", peer_id);
-        self.challenged_peer_id = Some(peer_id);
-
-        if self.addresses_of_peer(&peer_id).is_empty() {
-            log::debug!(
-                "No addresses found for peer {}, starting DHT query",
-                peer_id
-            );
-            self.kad.get_closest_peers(peer_id);
-        } else {
-            log::debug!(
-                "Addresses for peer {} found, starting challenge request",
-                peer_id
-            );
-            self.ipchess.challenge_peer(peer_id);
-        }
+        self.ipchess.challenge_peer(peer_id);
     }
 
     pub fn accept_peer_challenge(&mut self, peer_id: PeerId) {
@@ -216,57 +132,323 @@ impl Behaviour {
         self.ipchess.decline_peer_challenge(peer_id);
     }
 
-    pub fn is_connected(&self) -> bool {
-        self.peer_store
-            .peers_for_protocol(
-                std::str::from_utf8(kad::protocol::DEFAULT_PROTO_NAME)
-                    .expect("Kademlia protocol name is weird"),
-            )
-            .count()
-            > 0
+    pub fn is_connected(&mut self) -> bool {
+        true
+    }
+}
+
+macro_rules! delegate_to_behaviours {
+    ($self: ident, $fn: ident, $($arg: ident), *) => {
+        $self.identify.$fn($($arg),*);
+        $self.kad.$fn($($arg),*);
+        $self.ipchess.$fn($($arg),*);
+    };
+}
+
+impl NetworkBehaviour for Behaviour {
+    type ProtocolsHandler = BehaviourHandler;
+    type OutEvent = BehaviourEvent;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        IntoProtocolsHandler::select(
+            self.kad.new_handler(),
+            ProtocolsHandler::select(self.identify.new_handler(), self.ipchess.new_handler()),
+        )
+    }
+
+    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<libp2p::Multiaddr> {
+        match self.peer_infos.get(peer_id) {
+            Some(info) => info.addrs.iter().cloned().collect(),
+            None => self.kad.addresses_of_peer(peer_id),
+        }
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &libp2p::core::connection::ConnectionId,
+        endpoint: &libp2p::core::ConnectedPoint,
+    ) {
+        // Move new address to the front of the known addresses list.
+        // That way we'll dial it first next time.
+        let peer_info = self.peer_infos.entry(*peer_id).or_default();
+        let conn_address = match endpoint {
+            libp2p::core::ConnectedPoint::Dialer { address } => address,
+            libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
+        };
+
+        peer_info.addrs.retain(|addr| addr != conn_address);
+        peer_info.addrs.push_front(conn_address.clone());
+
+        delegate_to_behaviours!(
+            self,
+            inject_connection_established,
+            peer_id,
+            conn_id,
+            endpoint
+        );
+    }
+
+    fn inject_addr_reach_failure(
+        &mut self,
+        peer_id: Option<&PeerId>,
+        addr: &libp2p::Multiaddr,
+        error: &dyn std::error::Error,
+    ) {
+        // Remove unreachable address from known addresses list.
+        if let Some(peer_id) = peer_id {
+            self.peer_infos
+                .entry(*peer_id)
+                .and_modify(|e| e.addrs.retain(|known_addr| known_addr != addr));
+        }
+
+        delegate_to_behaviours!(self, inject_addr_reach_failure, peer_id, addr, error);
+    }
+
+    fn inject_event(
+        &mut self,
+        peer_id: PeerId,
+        connection: libp2p::core::connection::ConnectionId,
+        event: <<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::OutEvent,
+    ) {
+        match event {
+            EitherOutput::First(kad_handler_event) => {
+                self.kad
+                    .inject_event(peer_id, connection, kad_handler_event);
+            }
+            EitherOutput::Second(e) => match e {
+                EitherOutput::First(identify_handler_event) => {
+                    self.identify
+                        .inject_event(peer_id, connection, identify_handler_event);
+                }
+                EitherOutput::Second(ipchess_handler_event) => {
+                    self.ipchess
+                        .inject_event(peer_id, connection, ipchess_handler_event);
+                }
+            },
+        }
     }
 
     fn poll(
         &mut self,
-        _cx: &mut std::task::Context<'_>,
-        _params: &mut impl libp2p::swarm::PollParameters
-    ) -> Poll<NetworkBehaviourAction<<<<Self as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent, <Self as NetworkBehaviour>::OutEvent>>{
-        // drain events
-        if let Some(event) = self.events.pop_front() {
-            return Poll::Ready(event);
+        cx: &mut std::task::Context<'_>,
+        params: &mut impl libp2p::swarm::PollParameters,
+    ) -> Poll<
+        NetworkBehaviourAction<
+            <<Self::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::InEvent,
+            Self::OutEvent,
+        >,
+    >{
+        if let Poll::Ready(e) = self.identify.poll(cx, params) {
+            match e {
+                NetworkBehaviourAction::GenerateEvent(event) => {
+                    <Self as NetworkBehaviourEventProcess<IdentifyEvent>>::inject_event(
+                        self, event,
+                    );
+                }
+
+                NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler,
+                    event,
+                } => {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                        peer_id,
+                        handler,
+                        event: EitherOutput::Second(EitherOutput::First(event)),
+                    })
+                }
+
+                NetworkBehaviourAction::DialAddress { address } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address })
+                }
+
+                NetworkBehaviourAction::DialPeer { peer_id, condition } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition })
+                }
+
+                NetworkBehaviourAction::ReportObservedAddr { address, score } => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
+                        address,
+                        score,
+                    })
+                }
+            }
+        }
+
+        if let Poll::Ready(e) = self.kad.poll(cx, params) {
+            match e {
+                NetworkBehaviourAction::GenerateEvent(event) => {
+                    <Self as NetworkBehaviourEventProcess<KademliaEvent>>::inject_event(
+                        self, event,
+                    );
+                }
+
+                NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler,
+                    event,
+                } => {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                        peer_id,
+                        handler,
+                        event: EitherOutput::First(event),
+                    })
+                }
+
+                NetworkBehaviourAction::DialAddress { address } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address })
+                }
+
+                NetworkBehaviourAction::DialPeer { peer_id, condition } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition })
+                }
+
+                NetworkBehaviourAction::ReportObservedAddr { address, score } => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
+                        address,
+                        score,
+                    })
+                }
+            }
+        }
+
+        if let Poll::Ready(e) = self.ipchess.poll(cx, params) {
+            match e {
+                NetworkBehaviourAction::GenerateEvent(event) => {
+                    <Self as NetworkBehaviourEventProcess<IpchessEvent>>::inject_event(self, event);
+                }
+
+                NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler,
+                    event,
+                } => {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                        peer_id,
+                        handler,
+                        event: EitherOutput::Second(EitherOutput::Second(event)),
+                    })
+                }
+
+                NetworkBehaviourAction::DialAddress { address } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address })
+                }
+
+                NetworkBehaviourAction::DialPeer { peer_id, condition } => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition })
+                }
+
+                NetworkBehaviourAction::ReportObservedAddr { address, score } => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
+                        address,
+                        score,
+                    })
+                }
+            }
         }
 
         Poll::Pending
+    }
+
+    // Empty inject_*
+    fn inject_connected(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_connected, peer_id);
+    }
+
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_disconnected, peer_id);
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &libp2p::core::connection::ConnectionId,
+        endpoint: &libp2p::core::ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
+    }
+
+    fn inject_address_change(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &libp2p::core::connection::ConnectionId,
+        old: &libp2p::core::ConnectedPoint,
+        new: &libp2p::core::ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(self, inject_address_change, peer_id, conn_id, old, new);
+    }
+
+    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_dial_failure, peer_id);
+    }
+
+    fn inject_new_listener(&mut self, id: libp2p::core::connection::ListenerId) {
+        delegate_to_behaviours!(self, inject_new_listener, id);
+    }
+
+    fn inject_new_listen_addr(
+        &mut self,
+        id: libp2p::core::connection::ListenerId,
+        addr: &libp2p::Multiaddr,
+    ) {
+        delegate_to_behaviours!(self, inject_new_listen_addr, id, addr);
+    }
+
+    fn inject_expired_listen_addr(
+        &mut self,
+        id: libp2p::core::connection::ListenerId,
+        addr: &libp2p::Multiaddr,
+    ) {
+        delegate_to_behaviours!(self, inject_expired_listen_addr, id, addr);
+    }
+
+    fn inject_listener_error(
+        &mut self,
+        id: libp2p::core::connection::ListenerId,
+        err: &(dyn std::error::Error + 'static),
+    ) {
+        delegate_to_behaviours!(self, inject_listener_error, id, err);
+    }
+
+    fn inject_listener_closed(
+        &mut self,
+        id: libp2p::core::connection::ListenerId,
+        reason: Result<(), &std::io::Error>,
+    ) {
+        delegate_to_behaviours!(self, inject_listener_closed, id, reason);
+    }
+
+    fn inject_new_external_addr(&mut self, addr: &libp2p::Multiaddr) {
+        delegate_to_behaviours!(self, inject_new_external_addr, addr);
+    }
+
+    fn inject_expired_external_addr(&mut self, addr: &libp2p::Multiaddr) {
+        delegate_to_behaviours!(self, inject_expired_external_addr, addr);
     }
 }
 
 impl NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour {
     fn inject_event(&mut self, event: IdentifyEvent) {
         if let IdentifyEvent::Received { peer_id, info } = event {
-            for addr in info.listen_addrs.iter() {
-                self.kad.add_address(&peer_id, addr.clone());
+            let peer_info = self.peer_infos.entry(peer_id).or_default();
+            peer_info.protocols = info.protocols.into_iter().collect();
+
+            if peer_info.protocols.contains(
+                std::str::from_utf8(libp2p::kad::protocol::DEFAULT_PROTO_NAME).expect("oh no"),
+            ) {
+                for addr in info.listen_addrs.iter() {
+                    self.kad.add_address(&peer_id, addr.clone());
+                }
             }
 
-            self.peer_store.add_identify_info(peer_id, info.clone());
-
-            let challenged_peer_id = if let Some(challenged_peer_id) = &self.challenged_peer_id {
-                *challenged_peer_id
-            } else {
-                return;
-            };
-
-            if peer_id != challenged_peer_id {
-                return;
+            if peer_info.protocols.contains(crate::protocol::PROTOCOL_NAME) {
+                for addr in info.listen_addrs.iter() {
+                    if !peer_info.addrs.contains(addr) {
+                        peer_info.addrs.push_back(addr.clone());
+                    }
+                }
             }
-
-            log::debug!(
-                "Identified challenged peer {} {:?}, starting challenge request",
-                peer_id,
-                info,
-            );
-
-            self.challenged_peer_id = None;
-            self.ipchess.challenge_peer(peer_id);
         }
     }
 }
@@ -277,12 +459,9 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behaviour {
 
 impl NetworkBehaviourEventProcess<IpchessEvent> for Behaviour {
     fn inject_event(&mut self, event: IpchessEvent) {
-        self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-            BehaviourEvent::Ipchess(event),
-        ));
+        self.actions_queue
+            .push_back(NetworkBehaviourAction::GenerateEvent(
+                BehaviourEvent::Ipchess(event),
+            ));
     }
-}
-
-impl NetworkBehaviourEventProcess<PeerStoreEvent> for Behaviour {
-    fn inject_event(&mut self, _: PeerStoreEvent) {}
 }

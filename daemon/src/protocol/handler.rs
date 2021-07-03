@@ -5,9 +5,13 @@ use futures::{
     future::{self, BoxFuture},
     AsyncReadExt, AsyncWriteExt, FutureExt,
 };
-use libp2p::swarm::{
-    protocols_handler::{InboundUpgradeSend, OutboundUpgradeSend, UpgradeInfoSend},
-    KeepAlive, NegotiatedSubstream, ProtocolsHandler, ProtocolsHandlerEvent, SubstreamProtocol,
+use libp2p::{
+    core::UpgradeInfo,
+    swarm::{
+        protocols_handler::{InboundUpgradeSend, OutboundUpgradeSend},
+        KeepAlive, NegotiatedSubstream, ProtocolsHandler, ProtocolsHandlerEvent, SubstreamProtocol,
+    },
+    InboundUpgrade, OutboundUpgrade,
 };
 use prost::Message;
 use thiserror::Error;
@@ -53,31 +57,31 @@ pub enum IpchessHandlerError {
 
 pub struct IpchessProtocol {}
 
-impl UpgradeInfoSend for IpchessProtocol {
+impl UpgradeInfo for IpchessProtocol {
     type Info = &'static str;
     type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        iter::once("/ipchess/1.0.0")
+        iter::once(super::PROTOCOL_NAME)
     }
 }
 
-impl InboundUpgradeSend for IpchessProtocol {
-    type Output = NegotiatedSubstream;
+impl<C> InboundUpgrade<C> for IpchessProtocol {
+    type Output = C;
     type Error = IpchessHandlerError;
     type Future = future::Ready<Result<Self::Output, Self::Error>>;
 
-    fn upgrade_inbound(self, socket: NegotiatedSubstream, _info: Self::Info) -> Self::Future {
+    fn upgrade_inbound(self, socket: C, _info: Self::Info) -> Self::Future {
         future::ok(socket)
     }
 }
 
-impl OutboundUpgradeSend for IpchessProtocol {
-    type Output = NegotiatedSubstream;
+impl<C> OutboundUpgrade<C> for IpchessProtocol {
+    type Output = C;
     type Error = IpchessHandlerError;
     type Future = future::Ready<Result<Self::Output, Self::Error>>;
 
-    fn upgrade_outbound(self, socket: NegotiatedSubstream, _info: Self::Info) -> Self::Future {
+    fn upgrade_outbound(self, socket: C, _info: Self::Info) -> Self::Future {
         future::ok(socket)
     }
 }
