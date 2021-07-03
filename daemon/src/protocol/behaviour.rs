@@ -50,6 +50,8 @@ pub struct AcceptedChallenge {
 pub enum IpchessError {
     #[error("Preimage revealed by peer does not match previously sent commitment")]
     ChallengeCommitmentPreimageMismatch,
+    #[error("Peer did not follow the protocol")]
+    ChallengePoisoned,
 }
 
 #[derive(Debug)]
@@ -271,6 +273,10 @@ impl NetworkBehaviour for Ipchess {
                                     handler: NotifyHandler::Any,
                                     event: IpchessHandlerEventIn::ChallengePoisoned,
                                 });
+
+                            self.events.push_back(NetworkBehaviourAction::GenerateEvent(
+                                IpchessEvent::Error(IpchessError::ChallengePoisoned),
+                            ));
                         }
                     };
                 }
