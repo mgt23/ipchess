@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     task::Poll,
-    time::{Duration, Instant},
 };
 
 use libp2p::{
@@ -19,8 +18,6 @@ use super::{IpchessHandler, IpchessHandlerEventIn, IpchessHandlerEventOut};
 struct OutboundChallenge {
     /// Preimage of the commitment sent to the challenged peer.
     preimage: Vec<u8>,
-    /// Instant the challenge was sent to the peer.
-    timestamp: Instant,
 }
 
 /// States a challenge received from a peer is allowed to be in.
@@ -37,8 +34,6 @@ enum InboundChallenge {
         commitment: Vec<u8>,
         /// Random bytes chosen by the challenged peer.
         random: Vec<u8>,
-        /// Instant the random bytes were sent to the challenger.
-        timestamp: Instant,
     },
 }
 
@@ -51,21 +46,10 @@ pub struct AcceptedChallenge {
     random: Vec<u8>,
 }
 
-#[derive(Debug)]
-pub enum ChallengeDirection {
-    Inbound,
-    Outbound,
-}
-
 #[derive(Error, Debug)]
 pub enum IpchessError {
     #[error("Preimage revealed by peer does not match previously sent commitment")]
     ChallengeCommitmentPreimageMismatch,
-    #[error("Challenge timed out")]
-    ChallengeTimeout {
-        peer_id: PeerId,
-        direction: ChallengeDirection,
-    },
 }
 
 #[derive(Debug)]
@@ -90,26 +74,7 @@ pub enum IpchessEvent {
     Error(IpchessError),
 }
 
-/// Behaviour configuration.
-pub struct IpchessConfig {
-    /// Amount of time a peer has until an outbound challenge is considered timed out.
-    challenge_accept_timeout: Duration,
-    /// Amount of time a peer to sent back the challenge's commitment preimage.
-    challenge_preimage_timeout: Duration,
-}
-
-impl Default for IpchessConfig {
-    fn default() -> Self {
-        Self {
-            challenge_accept_timeout: Duration::from_secs(5 * 60),
-            challenge_preimage_timeout: Duration::from_secs(15),
-        }
-    }
-}
-
 pub struct Ipchess {
-    config: IpchessConfig,
-
     events: VecDeque<NetworkBehaviourAction<IpchessHandlerEventIn, IpchessEvent>>,
 
     outbound_challenges: HashMap<PeerId, OutboundChallenge>,
@@ -121,8 +86,6 @@ pub struct Ipchess {
 impl Ipchess {
     pub fn new() -> Self {
         Ipchess {
-            config: IpchessConfig::default(),
-
             events: VecDeque::new(),
 
             outbound_challenges: HashMap::new(),
@@ -149,15 +112,8 @@ impl Ipchess {
             .as_ref()
             .to_vec();
 
-        self.outbound_challenges.insert(
-            peer_id,
-            OutboundChallenge {
-                preimage,
-                // timestamp is set to now but this could be changed to be set to the
-                // instant at which the handler sent the challenge through the network.
-                timestamp: Instant::now(),
-            },
-        );
+        self.outbound_challenges
+            .insert(peer_id, OutboundChallenge { preimage });
 
         self.events
             .push_back(NetworkBehaviourAction::NotifyHandler {
@@ -193,11 +149,7 @@ impl Ipchess {
                         },
                     });
 
-                InboundChallenge::PendingPreimage {
-                    commitment,
-                    random,
-                    timestamp: Instant::now(),
-                }
+                InboundChallenge::PendingPreimage { commitment, random }
             }
 
             InboundChallenge::PendingPreimage { .. } => {
@@ -378,59 +330,6 @@ impl NetworkBehaviour for Ipchess {
         // drain pending events
         if let Some(event) = self.events.pop_front() {
             return Poll::Ready(event);
-        }
-
-        // clear timed out outbound challenge
-        let now = Instant::now();
-
-        let timedout_outbound_challenge_keys: Vec<_> = self
-            .outbound_challenges
-            .iter()
-            .filter_map(|(peer_id, challenge)| {
-                if now.duration_since(challenge.timestamp) > self.config.challenge_accept_timeout {
-                    Some(*peer_id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for peer_id in timedout_outbound_challenge_keys {
-            self.outbound_challenges.remove(&peer_id);
-            self.events
-                .push_back(NetworkBehaviourAction::GenerateEvent(IpchessEvent::Error(
-                    IpchessError::ChallengeTimeout {
-                        peer_id,
-                        direction: ChallengeDirection::Outbound,
-                    },
-                )));
-        }
-
-        // clear timed out inbound challenges
-        let timedout_inbound_challenge_keys: Vec<_> = self
-            .inbound_challenges
-            .iter()
-            .filter_map(|(peer_id, challenge)| match challenge {
-                InboundChallenge::Received { .. } => None,
-                InboundChallenge::PendingPreimage { timestamp, .. } => {
-                    if now.duration_since(*timestamp) > self.config.challenge_preimage_timeout {
-                        Some(*peer_id)
-                    } else {
-                        None
-                    }
-                }
-            })
-            .collect();
-
-        for peer_id in timedout_inbound_challenge_keys {
-            self.inbound_challenges.remove(&peer_id);
-            self.events
-                .push_back(NetworkBehaviourAction::GenerateEvent(IpchessEvent::Error(
-                    IpchessError::ChallengeTimeout {
-                        peer_id,
-                        direction: ChallengeDirection::Inbound,
-                    },
-                )));
         }
 
         Poll::Pending
