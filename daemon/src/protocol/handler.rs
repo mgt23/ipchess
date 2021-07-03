@@ -19,8 +19,8 @@ pub enum IpchessHandlerEventIn {
     Challenge { commitment: Vec<u8> },
     ChallengeAccept { random: Vec<u8> },
     ChallengeReveal { preimage: Vec<u8> },
-    ChallengeCanceled,
-    ChallengeDeclined,
+    ChallengeCancel,
+    ChallengeDecline,
     ChallengePoisoned,
 }
 
@@ -179,7 +179,7 @@ impl ProtocolsHandler for IpchessHandler {
                     }));
             }
 
-            IpchessHandlerEventIn::ChallengeCanceled => {
+            IpchessHandlerEventIn::ChallengeCancel => {
                 log::debug!("Cancelling challenge");
 
                 self.substream_states
@@ -190,7 +190,7 @@ impl ProtocolsHandler for IpchessHandler {
                     }));
             }
 
-            IpchessHandlerEventIn::ChallengeDeclined => {
+            IpchessHandlerEventIn::ChallengeDecline => {
                 log::debug!("Declining challenge");
 
                 self.substream_states

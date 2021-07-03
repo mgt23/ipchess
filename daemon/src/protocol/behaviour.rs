@@ -166,7 +166,7 @@ impl Ipchess {
 
     pub fn cancel_challenge(&mut self, peer_id: PeerId) {
         if self.outbound_challenges.remove(&peer_id).is_some() {
-            self.notify_handler_checked(peer_id, IpchessHandlerEventIn::ChallengeCanceled);
+            self.notify_handler_checked(peer_id, IpchessHandlerEventIn::ChallengeCancel);
         } else {
             log::debug!(
                 "Ignoring cancel_challenge, no challenge for peer {}",
@@ -177,7 +177,7 @@ impl Ipchess {
 
     pub fn decline_peer_challenge(&mut self, peer_id: PeerId) {
         if self.inbound_challenges.remove(&peer_id).is_some() {
-            self.notify_handler_checked(peer_id, IpchessHandlerEventIn::ChallengeDeclined);
+            self.notify_handler_checked(peer_id, IpchessHandlerEventIn::ChallengeDecline);
         } else {
             log::debug!(
                 "Ignoring decline_peer_challenge, no challenge from peer {}",
