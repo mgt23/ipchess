@@ -77,7 +77,8 @@ pub enum IpchessEvent {
 }
 
 pub struct Ipchess {
-    events: VecDeque<NetworkBehaviourAction<IpchessHandlerEventIn, IpchessEvent>>,
+    actions_queue: VecDeque<NetworkBehaviourAction<IpchessHandlerEventIn, IpchessEvent>>,
+    pending_handler_in: HashMap<PeerId, VecDeque<IpchessHandlerEventIn>>,
 
     outbound_challenges: HashMap<PeerId, OutboundChallenge>,
     inbound_challenges: HashMap<PeerId, InboundChallenge>,
@@ -88,7 +89,8 @@ pub struct Ipchess {
 impl Ipchess {
     pub fn new() -> Self {
         Ipchess {
-            events: VecDeque::new(),
+            actions_queue: VecDeque::new(),
+            pending_handler_in: HashMap::new(),
 
             outbound_challenges: HashMap::new(),
             inbound_challenges: HashMap::new(),
@@ -113,7 +115,7 @@ impl Ipchess {
         self.outbound_challenges
             .insert(peer_id, OutboundChallenge { preimage });
 
-        self.events
+        self.actions_queue
             .push_back(NetworkBehaviourAction::NotifyHandler {
                 peer_id: peer_id,
                 handler: NotifyHandler::Any,
@@ -138,14 +140,12 @@ impl Ipchess {
                 let mut thread_rng = rand::thread_rng();
                 let random = thread_rng.gen::<[u8; 32]>().to_vec();
 
-                self.events
-                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                        peer_id,
-                        handler: NotifyHandler::Any,
-                        event: IpchessHandlerEventIn::ChallengeAccept {
-                            random: random.clone(),
-                        },
-                    });
+                self.notify_handler_checked(
+                    peer_id,
+                    IpchessHandlerEventIn::ChallengeAccept {
+                        random: random.clone(),
+                    },
+                );
 
                 InboundChallenge::PendingPreimage { commitment, random }
             }
@@ -166,12 +166,7 @@ impl Ipchess {
 
     pub fn cancel_challenge(&mut self, peer_id: PeerId) {
         if self.outbound_challenges.remove(&peer_id).is_some() {
-            self.events
-                .push_back(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler: NotifyHandler::Any,
-                    event: IpchessHandlerEventIn::ChallengeCanceled,
-                });
+            self.notify_handler_checked(peer_id, IpchessHandlerEventIn::ChallengeCanceled);
         } else {
             log::debug!(
                 "Ignoring cancel_challenge, no challenge for peer {}",
@@ -182,17 +177,33 @@ impl Ipchess {
 
     pub fn decline_peer_challenge(&mut self, peer_id: PeerId) {
         if self.inbound_challenges.remove(&peer_id).is_some() {
-            self.events
-                .push_back(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler: NotifyHandler::Any,
-                    event: IpchessHandlerEventIn::ChallengeDeclined,
-                });
+            self.notify_handler_checked(peer_id, IpchessHandlerEventIn::ChallengeDeclined);
         } else {
             log::debug!(
                 "Ignoring decline_peer_challenge, no challenge from peer {}",
                 peer_id
             );
+        }
+    }
+
+    fn notify_handler_checked(&mut self, peer_id: PeerId, handler_in: IpchessHandlerEventIn) {
+        if self.connected_peers.contains(&peer_id) {
+            self.actions_queue
+                .push_back(NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler: NotifyHandler::Any,
+                    event: handler_in,
+                });
+        } else {
+            self.actions_queue
+                .push_back(NetworkBehaviourAction::DialPeer {
+                    peer_id,
+                    condition: libp2p::swarm::DialPeerCondition::Disconnected,
+                });
+            self.pending_handler_in
+                .entry(peer_id)
+                .or_default()
+                .push_back(handler_in);
         }
     }
 }
@@ -218,6 +229,17 @@ impl NetworkBehaviour for Ipchess {
         _: &libp2p::core::ConnectedPoint,
     ) {
         self.connected_peers.insert(*peer_id);
+
+        if let Some(pending_handler_in_events) = self.pending_handler_in.remove(peer_id) {
+            for pending_handler_in in pending_handler_in_events {
+                self.actions_queue
+                    .push_back(NetworkBehaviourAction::NotifyHandler {
+                        peer_id: *peer_id,
+                        handler: NotifyHandler::Any,
+                        event: pending_handler_in,
+                    });
+            }
+        }
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -227,7 +249,7 @@ impl NetworkBehaviour for Ipchess {
     fn inject_event(
         &mut self,
         peer_id: PeerId,
-        _conn_id: ConnectionId,
+        conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         match event {
@@ -235,9 +257,10 @@ impl NetworkBehaviour for Ipchess {
                 self.inbound_challenges
                     .insert(peer_id, InboundChallenge::Received { commitment });
 
-                self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                    IpchessEvent::PeerChallenge { peer_id },
-                ));
+                self.actions_queue
+                    .push_back(NetworkBehaviourAction::GenerateEvent(
+                        IpchessEvent::PeerChallenge { peer_id },
+                    ));
             }
 
             IpchessHandlerEventOut::ChallengeRevealReceived { preimage } => {
@@ -249,39 +272,43 @@ impl NetworkBehaviour for Ipchess {
                             let preimage_hash = libp2p::multihash::Sha2_256::digest(&preimage);
 
                             if preimage_hash.as_ref().to_vec() == commitment {
-                                self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                                    IpchessEvent::ChallengeAccepted {
-                                        peer_id,
-                                        challenge: AcceptedChallenge { preimage, random },
-                                    },
-                                ));
-                            } else {
-                                self.events
-                                    .push_back(NetworkBehaviourAction::NotifyHandler {
-                                        peer_id,
-                                        handler: NotifyHandler::Any,
-                                        event: IpchessHandlerEventIn::ChallengePoisoned,
-                                    });
-
-                                self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                                    IpchessEvent::Error(
-                                        IpchessError::ChallengeCommitmentPreimageMismatch,
+                                self.actions_queue.push_back(
+                                    NetworkBehaviourAction::GenerateEvent(
+                                        IpchessEvent::ChallengeAccepted {
+                                            peer_id,
+                                            challenge: AcceptedChallenge { preimage, random },
+                                        },
                                     ),
-                                ));
+                                );
+                            } else {
+                                self.actions_queue.push_back(
+                                    NetworkBehaviourAction::NotifyHandler {
+                                        peer_id,
+                                        handler: NotifyHandler::One(conn_id),
+                                        event: IpchessHandlerEventIn::ChallengePoisoned,
+                                    },
+                                );
+
+                                self.actions_queue.push_back(
+                                    NetworkBehaviourAction::GenerateEvent(IpchessEvent::Error(
+                                        IpchessError::ChallengeCommitmentPreimageMismatch,
+                                    )),
+                                );
                             }
                         }
 
                         InboundChallenge::Received { .. } => {
-                            self.events
+                            self.actions_queue
                                 .push_back(NetworkBehaviourAction::NotifyHandler {
                                     peer_id,
-                                    handler: NotifyHandler::Any,
+                                    handler: NotifyHandler::One(conn_id),
                                     event: IpchessHandlerEventIn::ChallengePoisoned,
                                 });
 
-                            self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                                IpchessEvent::Error(IpchessError::ChallengePoisoned),
-                            ));
+                            self.actions_queue
+                                .push_back(NetworkBehaviourAction::GenerateEvent(
+                                    IpchessEvent::Error(IpchessError::ChallengePoisoned),
+                                ));
                         }
                     };
                 }
@@ -289,40 +316,43 @@ impl NetworkBehaviour for Ipchess {
 
             IpchessHandlerEventOut::ChallengeAccepted { random } => {
                 if let Some(sent_challenge) = self.outbound_challenges.remove(&peer_id) {
-                    self.events
+                    self.actions_queue
                         .push_back(NetworkBehaviourAction::NotifyHandler {
                             peer_id,
-                            handler: NotifyHandler::Any,
+                            handler: NotifyHandler::One(conn_id),
                             event: IpchessHandlerEventIn::ChallengeReveal {
                                 preimage: sent_challenge.preimage.clone(),
                             },
                         });
 
-                    self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                        IpchessEvent::ChallengeAccepted {
-                            peer_id,
-                            challenge: AcceptedChallenge {
-                                preimage: sent_challenge.preimage,
-                                random,
+                    self.actions_queue
+                        .push_back(NetworkBehaviourAction::GenerateEvent(
+                            IpchessEvent::ChallengeAccepted {
+                                peer_id,
+                                challenge: AcceptedChallenge {
+                                    preimage: sent_challenge.preimage,
+                                    random,
+                                },
                             },
-                        },
-                    ));
+                        ));
                 }
             }
 
             IpchessHandlerEventOut::ChallengeCanceled => {
                 if self.inbound_challenges.remove(&peer_id).is_some() {
-                    self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                        IpchessEvent::ChallengeCanceled { peer_id },
-                    ));
+                    self.actions_queue
+                        .push_back(NetworkBehaviourAction::GenerateEvent(
+                            IpchessEvent::ChallengeCanceled { peer_id },
+                        ));
                 }
             }
 
             IpchessHandlerEventOut::ChallengeDeclined => {
                 if self.outbound_challenges.remove(&peer_id).is_some() {
-                    self.events.push_back(NetworkBehaviourAction::GenerateEvent(
-                        IpchessEvent::ChallengeDeclined { peer_id },
-                    ));
+                    self.actions_queue
+                        .push_back(NetworkBehaviourAction::GenerateEvent(
+                            IpchessEvent::ChallengeDeclined { peer_id },
+                        ));
                 }
             }
         }
@@ -338,9 +368,9 @@ impl NetworkBehaviour for Ipchess {
             Self::OutEvent,
         >,
     > {
-        // drain pending events
-        if let Some(event) = self.events.pop_front() {
-            return Poll::Ready(event);
+        // drain pending network behaviour actions
+        if let Some(action) = self.actions_queue.pop_front() {
+            return Poll::Ready(action);
         }
 
         Poll::Pending
